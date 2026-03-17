@@ -1,0 +1,32 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Hetzner via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 135.181.37.100
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            set -e
+            echo "=== Pulling latest code ==="
+            cd /opt/meridian-rust
+            git pull origin main
+
+            echo "=== Building release binary ==="
+            cd /opt/meridian-rust/meridian
+            cargo build --release 2>&1
+
+            echo "=== Restarting service ==="
+            systemctl restart meridian-rust
+
+            echo "=== Health check ==="
+            sleep 3
+            curl -sf http://localhost:8100/v1/health && echo "✅ Deploy successful" || echo "❌ Health check failed"
