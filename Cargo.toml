@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "meridian",
+    "meridian-mcp",
+]
+resolver = "2"

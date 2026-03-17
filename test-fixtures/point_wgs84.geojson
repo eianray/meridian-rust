@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "San Francisco City Hall", "type": "civic" },
+      "geometry": { "type": "Point", "coordinates": [-122.4194, 37.7793] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Golden Gate Park", "type": "park" },
+      "geometry": { "type": "Point", "coordinates": [-122.4862, 37.7694] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Ferry Building", "type": "transit" },
+      "geometry": { "type": "Point", "coordinates": [-122.3937, 37.7956] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Caltrain Station", "type": "transit" },
+      "geometry": { "type": "Point", "coordinates": [-122.3952, 37.7764] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Dolores Park", "type": "park" },
+      "geometry": { "type": "Point", "coordinates": [-122.4267, 37.7596] }
+    }
+  ]
+}

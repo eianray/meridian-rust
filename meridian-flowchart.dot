@@ -1,0 +1,177 @@
+digraph MeridianRust {
+    graph [
+        rankdir=TB
+        fontname="Helvetica Neue"
+        fontsize=13
+        pad=0.6
+        splines=ortho
+        nodesep=0.6
+        ranksep=0.8
+        bgcolor="white"
+        label="MeridianRust — x402 Payment + GIS Processing Flow\nv0.3.0 · v2.nodeapi.ai · Base USDC"
+        labelloc=t
+        labeljust=c
+        fontsize=16
+    ]
+    node [fontname="Helvetica Neue" fontsize=12 style=filled shape=box margin="0.2,0.12"]
+    edge [fontname="Helvetica Neue" fontsize=11]
+
+    // ── LEGEND ───────────────────────────────────────────────────────────────
+    subgraph cluster_legend {
+        label="Legend"
+        style=filled fillcolor="#f8f9fa" color="#6b7280"
+        fontsize=12
+
+        l1 [label="Actor\n(Agent / Human)" shape=oval fillcolor="#dbeafe" color="#3b82f6" width=1.6]
+        l2 [label="MeridianRust\n(Axum API)" fillcolor="#dcfce7" color="#16a34a" width=1.6]
+        l3 [label="Self-hosted\nFacilitator" fillcolor="#f3e8ff" color="#9333ea" width=1.6]
+        l4 [label="Base Mainnet\n(On-chain)" fillcolor="#fed7aa" color="#ea580c" width=1.6]
+        l5 [label="Observability\n/ Storage" fillcolor="#f3f4f6" color="#6b7280" width=1.6]
+        l6 [label="Future /\nOptional" fillcolor="#f3f4f6" color="#9ca3af" style="filled,dashed" width=1.6]
+
+        l1 -> l2 -> l3 -> l4 -> l5 -> l6 [style=invis]
+    }
+
+    // ── Actors ──────────────────────────────────────────────────────────────
+    subgraph cluster_actors {
+        label="Actors"
+        style=dashed color="#aaaaaa"
+        fontsize=12
+
+        agent [label="AI Agent\n(or Developer)" shape=oval fillcolor="#dbeafe" color="#3b82f6"]
+        human [label="Human / Browser\n(future UI)" shape=oval fillcolor="#f3f4f6" color="#9ca3af" style="filled,dashed"]
+    }
+
+    // ── Step 1: Initial Request ──────────────────────────────────────────────
+    subgraph cluster_step1 {
+        label="Step 1 — Initial Request"
+        style=rounded color="#e5e7eb"
+        req1 [label="POST /v1/<operation>\n(no payment header)" fillcolor="#fef9c3" color="#ca8a04"]
+    }
+
+    // ── Step 2: 402 Response ────────────────────────────────────────────────
+    subgraph cluster_step2 {
+        label="Step 2 — Payment Required"
+        style=rounded color="#e5e7eb"
+        resp402 [label="HTTP 402\nx402Version: 1\nscheme: exact\nnetwork: base\nmax_amount_required: 10000\npay_to: 0x5253...48D\nasset: USDC (Base)" fillcolor="#fef3c7" color="#d97706" shape=note]
+    }
+
+    // ── Step 3: Client Signs ────────────────────────────────────────────────
+    subgraph cluster_step3 {
+        label="Step 3 — Client Signs (off-chain)"
+        style=rounded color="#e5e7eb"
+        sign [label="Sign EIP-3009 Authorization\nTransferWithAuthorization {\n  from, to, value,\n  validAfter, validBefore, nonce\n}\n→ ECDSA signature (k256)" fillcolor="#ede9fe" color="#7c3aed"]
+        encode [label="Base64-encode payload\n→ X-PAYMENT header" fillcolor="#ede9fe" color="#7c3aed"]
+    }
+
+    // ── Step 4: Retry ────────────────────────────────────────────────────────
+    subgraph cluster_step4 {
+        label="Step 4 — Retry with Payment"
+        style=rounded color="#e5e7eb"
+        req2 [label="POST /v1/<operation>\nX-PAYMENT: <base64 payload>\n+ GIS file (multipart)" fillcolor="#fef9c3" color="#ca8a04"]
+    }
+
+    // ── Step 5: MeridianRust ─────────────────────────────────────────────────
+    subgraph cluster_meridian {
+        label="MeridianRust — Hetzner ARM64 · port 8101"
+        style=filled fillcolor="#f0fdf4" color="#16a34a"
+        fontsize=12
+
+        ratelimit [label="Rate Limiter\n60 req/min · Tower middleware" fillcolor="#dcfce7" color="#16a34a"]
+        extract [label="Extract X-PAYMENT\nheader + file bytes" fillcolor="#dcfce7" color="#16a34a"]
+        price [label="Compute Price\n$0.01/MB · min $0.01 · cap $2.00" fillcolor="#dcfce7" color="#16a34a"]
+        callsettler [label="POST /facilitate\n→ meridian-facilitator\n(localhost:8102)" fillcolor="#bbf7d0" color="#15803d"]
+
+        subgraph cluster_gis {
+            label="GIS Processing (GDAL 3.8 C/C++ · gdal crate 0.19 · GEOS)"
+            style=filled fillcolor="#ecfdf5" color="#059669"
+            fontsize=11
+
+            ops [label="21 Operations:\nreproject · buffer · clip · dissolve\nschema · validate · repair · convert\nunion · intersect · difference\nerase · feature-to-point · feature-to-line\nfeature-to-polygon · multipart-to-singlepart\nadd-field · append · merge · spatial-join\nvectorize (tippecanoe)" fillcolor="#d1fae5" color="#059669" shape=box]
+        }
+
+        semaphore [label="GDAL Semaphore\nmax 8 concurrent threads" fillcolor="#dcfce7" color="#16a34a"]
+        logop [label="Log to operations_log\n(PostgreSQL)" fillcolor="#dcfce7" color="#16a34a"]
+        result [label="Return JSON result\n{ request_id, price_usd, result }" fillcolor="#bbf7d0" color="#15803d"]
+    }
+
+    // ── Step 6: Facilitator ──────────────────────────────────────────────────
+    subgraph cluster_facilitator {
+        label="meridian-facilitator — port 8102 (self-hosted)"
+        style=filled fillcolor="#fdf4ff" color="#9333ea"
+        fontsize=12
+
+        fverify [label="Verify EIP-712 Signature\nkeccak256(\\x19\\x01 || domainSep || structHash)\nECDSA recover → compare from address" fillcolor="#f3e8ff" color="#9333ea"]
+        fvalidate [label="Validate:\n• recipient matches pay_to\n• value matches amount\n• validBefore > now+6s\n• validAfter ≤ now" fillcolor="#f3e8ff" color="#9333ea"]
+        fsettle [label="Submit on-chain\ntransferWithAuthorization()\nUSDC contract · Base mainnet\nFacilitator wallet pays gas" fillcolor="#e9d5ff" color="#7c3aed"]
+        fwait [label="Wait for tx receipt\n(timeout 60s)" fillcolor="#f3e8ff" color="#9333ea"]
+        fresp [label="Return:\n{ isValid: true, payer, transaction }" fillcolor="#e9d5ff" color="#7c3aed"]
+    }
+
+    // ── Step 7: Base Chain ───────────────────────────────────────────────────
+    subgraph cluster_chain {
+        label="Base Mainnet (Ethereum L2)"
+        style=filled fillcolor="#fff7ed" color="#ea580c"
+        fontsize=12
+
+        usdc_contract [label="USDC Contract\n0x833589...t1v\ntransferWithAuthorization()" fillcolor="#fed7aa" color="#ea580c"]
+        wallet_recv [label="Recipient Wallet\n0x5253...48D\n(receives USDC)" fillcolor="#fdba74" color="#c2410c"]
+    }
+
+    // ── Observability ────────────────────────────────────────────────────────
+    subgraph cluster_obs {
+        label="Observability"
+        style=dashed color="#6b7280"
+        fontsize=11
+        metrics [label="Prometheus /metrics\nops/sec · latency · payment rate" fillcolor="#f9fafb" color="#6b7280"]
+        swagger [label="OpenAPI /docs\n(utoipa, always in sync)" fillcolor="#f9fafb" color="#6b7280"]
+        db [label="PostgreSQL\noperations_log\nused_signatures" fillcolor="#f9fafb" color="#6b7280"]
+    }
+
+    // ── Future ───────────────────────────────────────────────────────────────
+    subgraph cluster_future {
+        label="Future (when live)"
+        style=dashed color="#9ca3af"
+        fontsize=11
+        coinbase_facilitator [label="Coinbase Facilitator\nhttps://x402.org/facilitate\n(pending launch — drop-in swap\nvia X402_FACILITATOR_URL env var)" fillcolor="#f3f4f6" color="#9ca3af" style="filled,dashed"]
+    }
+
+    // ── Edges ────────────────────────────────────────────────────────────────
+    agent -> req1
+    human -> req1 [style=dashed color="#9ca3af"]
+
+    req1 -> ratelimit
+    ratelimit -> resp402 [label="no X-PAYMENT → 402"]
+
+    resp402 -> sign [label="client reads\npayment requirements"]
+    sign -> encode
+    encode -> req2
+
+    req2 -> ratelimit
+    ratelimit -> extract [label="X-PAYMENT present"]
+    extract -> price
+    price -> callsettler [label="call facilitator"]
+
+    callsettler -> fverify
+    fverify -> fvalidate
+    fvalidate -> fsettle [label="valid ✓"]
+    fvalidate -> result [label="invalid → 400" style=dashed color="#ef4444" fontcolor="#ef4444"]
+    fsettle -> usdc_contract
+    usdc_contract -> wallet_recv [label="USDC transfer\non-chain"]
+    usdc_contract -> fwait
+    fwait -> fresp
+    fresp -> callsettler [label="{ isValid: true }"]
+
+    callsettler -> semaphore [label="payment verified"]
+    semaphore -> ops
+    ops -> logop
+    logop -> result
+
+    result -> agent [label="200 OK\nGIS data"]
+
+    logop -> db [style=dashed]
+    result -> metrics [style=dashed]
+    result -> swagger [style=dashed color="#9ca3af"]
+
+    coinbase_facilitator -> callsettler [label="swap via\nX402_FACILITATOR_URL" style=dashed color="#9ca3af" fontcolor="#9ca3af"]
+}

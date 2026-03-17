@@ -1,0 +1,52 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "road_name": "Market Street", "class": "arterial", "lanes": 4 },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.4194, 37.7749], [-122.4150, 37.7760],
+          [-122.4100, 37.7780], [-122.4050, 37.7810],
+          [-122.3990, 37.7850]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "road_name": "Mission Street", "class": "arterial", "lanes": 4 },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.4190, 37.7630], [-122.4150, 37.7660],
+          [-122.4100, 37.7700], [-122.4050, 37.7730],
+          [-122.3980, 37.7770]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "road_name": "Van Ness Avenue", "class": "arterial", "lanes": 6 },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.4219, 37.7700], [-122.4219, 37.7750],
+          [-122.4219, 37.7800], [-122.4219, 37.7850],
+          [-122.4219, 37.7900]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "road_name": "Castro Street", "class": "collector", "lanes": 2 },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-122.4350, 37.7580], [-122.4340, 37.7610],
+          [-122.4330, 37.7640], [-122.4320, 37.7670]
+        ]
+      }
+    }
+  ]
+}

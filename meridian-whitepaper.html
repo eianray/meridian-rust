@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Meridian — White Paper</title>
+<style>
+@page {
+  margin: 2cm 2.5cm;
+  @bottom-center {
+    content: "— " counter(page) " —";
+    font-size: 9pt;
+    color: #7a7a7a;
+    font-family: Georgia, 'Times New Roman', serif;
+  }
+}
+
+:root {
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-mono: 'Courier New', Courier, monospace;
+  --text-main: #1a1a1a;
+  --text-muted: #7a7a7a;
+  --divider: #e5e5e5;
+  --code-bg: #f0f0f0;
+}
+
+body {
+  font-family: var(--font-serif);
+  background-color: #ffffff;
+  color: var(--text-main);
+  line-height: 1.6;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 48px 32px;
+  font-size: 18px;
+}
+
+/* Title block */
+h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.1;
+  color: #000;
+}
+.subtitle {
+  font-size: 1.5rem;
+  font-style: italic;
+  font-weight: 400;
+  margin: 0 0 0.25rem 0;
+  color: #333;
+}
+.version {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 1.5rem 0;
+  display: block;
+}
+.title-rule {
+  border: none;
+  border-top: 2px solid #000;
+  margin: 0 0 2.5rem 0;
+}
+
+/* Section headers */
+h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 2.5rem 0 1rem 0;
+  color: #000;
+  page-break-after: avoid;
+}
+h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.5rem 0;
+  color: #000;
+  page-break-after: avoid;
+}
+
+/* Body */
+p {
+  font-size: 1rem;
+  margin: 0 0 1.25rem 0;
+  line-height: 1.7;
+}
+ul, ol {
+  margin: 0.5rem 0 1.25rem 0;
+  padding-left: 1.75rem;
+  line-height: 1.7;
+}
+li {
+  margin-bottom: 0.4rem;
+}
+
+/* Section dividers */
+.section-rule {
+  border: none;
+  border-top: 1px solid var(--divider);
+  margin: 2rem 0;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0 1.5rem 0;
+  font-size: 0.95rem;
+  page-break-inside: avoid;
+}
+th {
+  background: #f0f0f0;
+  font-weight: 700;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+}
+td {
+  padding: 7px 12px;
+  border: 1px solid #ddd;
+  vertical-align: top;
+}
+tr:nth-child(even) td {
+  background: #f8f8f8;
+}
+
+/* Code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  color: #333;
+}
+
+/* Footer */
+.doc-footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--divider);
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--text-muted);
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<h1>Meridian — White Paper</h1>
+<span class="subtitle">Machine-Native GIS Processing API</span>
+<span class="version">v0.5.0 — March 2026</span>
+<hr class="title-rule">
+
+<h2>1. Executive Summary</h2>
+<p>Meridian is a spatial data processing API designed for AI agents and developers. It exposes 29 GIS endpoints — convert, reproject, validate, repair, clip, buffer, dissolve, tile, raster, and more — behind a frictionless micropayment rail. No accounts. No API keys. No subscriptions. An agent sends a request, receives a payment prompt, signs a small USDC transaction on Base, and gets its data back.</p>
+<p>Meridian also exposes an Agent Skill on ClawHub, allowing OpenClaw agents to call it as a tool directly without managing payment manually.</p>
+<hr class="section-rule">
+
+<h2>2. The Problem</h2>
+<p>GIS data processing has a tooling gap at the agent layer.</p>
+<p>Desktop tools (ArcGIS, QGIS) are designed for human interaction — GUIs, sessions, manual workflows. They do not compose cleanly into automated pipelines. Developer-facing libraries (GeoPandas, Shapely, GDAL) require Python expertise and environment setup. Cloud platforms (Esri ArcGIS Online, Google Maps Platform) are expensive, account-gated, and not designed for machine-to-machine use.</p>
+<p>AI agents operating on geospatial data — converting formats, reprojecting layers, validating geometry, computing buffers — have no clean, lightweight, pay-as-you-go API to call.</p>
+<p><strong>Meridian is that API.</strong></p>
+<hr class="section-rule">
+
+<h2>3. Design Principles</h2>
+<p><strong>Machine-first.</strong> Every endpoint accepts multipart file uploads and returns processed files or JSON. No session state, no UI, no human steps. An agent can discover, call, pay, and receive results in a single automated loop.</p>
+<p><strong>Stateless payment.</strong> The payment model is designed for agents that don't have credit cards or user accounts. The 402/pay/retry loop means any agent with a funded Base wallet can use Meridian without pre-registration or human intervention.</p>
+<p><strong>No lock-in.</strong> Open standards throughout: GeoJSON, Shapefile, GeoPackage, KML. Output from any endpoint can flow into any GIS.</p>
+<p><strong>Composable.</strong> Endpoints chain naturally. Validate → repair → reproject → buffer → convert is a four-call pipeline. The batch endpoint runs up to 50 operations in a single request.</p>
+<hr class="section-rule">
+
+<h2>4. Payment Architecture</h2>
+<p>Meridian uses x402 with USDC on Base mainnet.</p>
+<h3>The flow:</h3>
+<ol>
+  <li>Agent calls any endpoint (no credentials)</li>
+  <li>Server responds <code>402 Payment Required</code> with x402 payment requirements (amount in USDC, Base network, recipient wallet address)</li>
+  <li>Agent signs an EIP-3009 <code>transferWithAuthorization</code> payload with their Base wallet</li>
+  <li>Agent retries with <code>X-PAYMENT: &lt;base64-encoded-payload&gt;</code> header</li>
+  <li>Coinbase CDP facilitator verifies and settles <code>transferWithAuthorization()</code> on Base mainnet</li>
+  <li>Request processes, result returns</li>
+</ol>
+<p><strong>Why Base / x402:</strong> Sub-second finality, negligible gas fees, EIP-3009 is a standard any EVM wallet supports. The Coinbase CDP facilitator handles verification and settlement — Meridian doesn't manage gas or RPC.</p>
+<p><strong>Pricing:</strong> $0.01 per MB, minimum $0.01, cap $2.00.</p>
+<p><strong>Anti-replay:</strong> Every x402 payment payload is verified and settled exactly once by the Coinbase CDP facilitator. Replay protection is handled at the facilitator level. Application-side idempotency records are maintained in PostgreSQL.</p>
+<hr class="section-rule">
+
+<h2>5. Endpoints</h2>
+<h3>Vector / GIS</h3>
+<table>
+  <tr><th>Endpoint</th><th>Description</th></tr>
+  <tr><td><code>POST /v1/schema</code></td><td>Extract field names, types, CRS, geometry type, feature count, bbox</td></tr>
+  <tr><td><code>POST /v1/validate</code></td><td>Geometry validity report via GEOS IsValid</td></tr>
+  <tr><td><code>POST /v1/repair</code></td><td>Fix invalid geometries via GEOS MakeValid</td></tr>
+  <tr><td><code>POST /v1/convert</code></td><td>Convert GeoJSON → GeoJSON / Shapefile / KML / GeoPackage</td></tr>
+  <tr><td><code>POST /v1/reproject</code></td><td>Reproject to any GDAL CRS string</td></tr>
+  <tr><td><code>POST /v1/buffer</code></td><td>Buffer features by distance in meters (auto-UTM)</td></tr>
+  <tr><td><code>POST /v1/clip</code></td><td>Clip to polygon mask</td></tr>
+  <tr><td><code>POST /v1/dissolve</code></td><td>Merge features by attribute field</td></tr>
+  <tr><td><code>POST /v1/erase</code></td><td>Delete all features, preserve empty schema</td></tr>
+  <tr><td><code>POST /v1/feature-to-point</code></td><td>Convert geometries to centroid points</td></tr>
+  <tr><td><code>POST /v1/feature-to-line</code></td><td>Extract polygon boundaries as LineStrings</td></tr>
+  <tr><td><code>POST /v1/feature-to-polygon</code></td><td>Polygonize closed LineString geometries</td></tr>
+  <tr><td><code>POST /v1/multipart-to-singlepart</code></td><td>Explode multipart geometries to single parts</td></tr>
+  <tr><td><code>POST /v1/add-field</code></td><td>Add attribute column with optional typed default</td></tr>
+  <tr><td><code>POST /v1/union</code></td><td>Combine all features from two layers</td></tr>
+  <tr><td><code>POST /v1/intersect</code></td><td>Spatial intersection of two layers</td></tr>
+  <tr><td><code>POST /v1/difference</code></td><td>layer_a minus (layer_a ∩ layer_b)</td></tr>
+  <tr><td><code>POST /v1/append</code></td><td>Add features from layer_b into layer_a's schema</td></tr>
+  <tr><td><code>POST /v1/merge</code></td><td>Combine two layers preserving all fields from both</td></tr>
+  <tr><td><code>POST /v1/spatial-join</code></td><td>Join attributes from layer_b onto layer_a by spatial predicate</td></tr>
+  <tr><td><code>POST /v1/vectorize</code></td><td>Generate <code>.mbtiles</code> vector tile package via tippecanoe</td></tr>
+  <tr><td><code>POST /v1/batch</code></td><td>Run up to 50 operations in one request with a single x402 payment</td></tr>
+</table>
+
+<h3>DEM / Raster</h3>
+<table>
+  <tr><th>Endpoint</th><th>Description</th></tr>
+  <tr><td><code>POST /v1/hillshade</code></td><td>Shaded relief via <code>gdaldem hillshade</code></td></tr>
+  <tr><td><code>POST /v1/slope</code></td><td>Terrain slope via <code>gdaldem slope</code></td></tr>
+  <tr><td><code>POST /v1/aspect</code></td><td>Terrain aspect via <code>gdaldem aspect</code></td></tr>
+  <tr><td><code>POST /v1/roughness</code></td><td>Terrain roughness via <code>gdaldem roughness</code></td></tr>
+  <tr><td><code>POST /v1/color-relief</code></td><td>Hypsometric tint via <code>gdaldem color-relief</code></td></tr>
+  <tr><td><code>POST /v1/contours</code></td><td>Contour extraction via <code>gdal_contour</code> (GeoJSON output)</td></tr>
+  <tr><td><code>POST /v1/raster-calc</code></td><td>Pixel math across raster inputs via <code>gdal_calc.py</code></td></tr>
+</table>
+
+<h3>Info (free)</h3>
+<table>
+  <tr><th>Endpoint</th><th>Description</th></tr>
+  <tr><td><code>GET /v1/health</code></td><td>Service health and version</td></tr>
+</table>
+<hr class="section-rule">
+
+<h2>6. Technical Stack</h2>
+<table>
+  <tr><th>Component</th><th>Implementation</th></tr>
+  <tr><td>Language</td><td>Rust</td></tr>
+  <tr><td>HTTP framework</td><td>Axum 0.7</td></tr>
+  <tr><td>Database</td><td>SQLx + PostgreSQL</td></tr>
+  <tr><td>Rate limiting</td><td>Tower middleware (60 req/min)</td></tr>
+  <tr><td>Payment protocol</td><td>x402 + Base USDC + EIP-3009</td></tr>
+  <tr><td>Payment settlement</td><td>Coinbase CDP managed facilitator</td></tr>
+  <tr><td>GIS / geometry</td><td>gdal crate 0.19 (GDAL/OGR FFI)</td></tr>
+  <tr><td>DEM / raster tools</td><td>gdaldem, gdal_contour, gdal_calc.py (shell-out from Rust)</td></tr>
+  <tr><td>Vector tiles</td><td>tippecanoe (shell-out)</td></tr>
+  <tr><td>API docs</td><td>utoipa (OpenAPI auto-generated)</td></tr>
+  <tr><td>Logging</td><td>tracing (structured, request IDs)</td></tr>
+  <tr><td>Metrics</td><td>Prometheus</td></tr>
+  <tr><td>Hosting</td><td>Hetzner CAX21 ARM (Cloudflare Tunnel → meridianapi.nodeapi.ai)</td></tr>
+</table>
+<hr class="section-rule">
+
+<h2>7. Agent Skill</h2>
+<p>Meridian publishes an Agent Skill on ClawHub. Any OpenClaw agent that installs the skill (<code>clawhub install meridian</code>) gains full knowledge of the API endpoint surface, payment flow, and tool descriptions — no manual setup required. The skill covers all 29 endpoints and handles the x402 payment negotiation automatically.</p>
+<hr class="section-rule">
+
+<h2>8. Production Validation</h2>
+<p>On 2026-03-12, MeridianRust completed a full external-style black-box validation:</p>
+<ul>
+  <li>Public production endpoints</li>
+  <li>Real x402 payment negotiation</li>
+  <li>Real EIP-3009 signing</li>
+  <li>Real Base mainnet settlement</li>
+  <li>Valid and invalid request paths tested</li>
+</ul>
+<p><strong>Result: 22/22 PASS.</strong> Additional 100-transaction stress test under concurrent load — all transactions processed correctly.</p>
+<hr class="section-rule">
+
+<h2>9. Current Status</h2>
+<p>Meridian v0.5.0 is live at <code>meridianapi.nodeapi.ai</code>.</p>
+<ul>
+  <li>Rust/Axum rewrite — full GIS parity with legacy Python service</li>
+  <li>x402 / Base USDC payment flow live and production-validated</li>
+  <li>Coinbase CDP managed facilitator (v0.5.0, 2026-03-17)</li>
+  <li>DEM / raster endpoints live (hillshade, slope, aspect, roughness, color-relief, contours, raster-calc)</li>
+  <li>22/22 production acceptance pass + 100-transaction stress test</li>
+  <li>Agent Skill published on ClawHub</li>
+  <li>OpenAPI docs live at meridianapi.nodeapi.ai/docs</li>
+</ul>
+<hr class="section-rule">
+
+<h2>10. Why Meridian</h2>
+<p>AI agents that work with geospatial data have nowhere clean to send a file for processing. Meridian is the first GIS API designed specifically for that use case — stateless, machine-payable, composable, and accessible to any agent without human setup.</p>
+<p>The Agent Skill layer takes it further: any OpenClaw agent can use Meridian as a native tool, making spatial data processing available in any agent workflow, without writing custom payment or API integration code.</p>
+
+<div class="doc-footer">
+  <em>Meridian is developed by Eian Ray and Malko. All technical implementation by Malko; GIS domain expertise and product direction by Eian Ray. Live at meridianapi.nodeapi.ai.</em>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,40 @@
+[Unit]
+Description=Node API — GIS Processing Service
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=nodeapi
+Group=nodeapi
+WorkingDirectory=/opt/node-api
+
+# Load environment from .env
+EnvironmentFile=/opt/node-api/.env
+
+# Ensure Homebrew/system paths are available
+Environment=PATH=/opt/node-api/venv/bin:/usr/local/bin:/usr/bin:/bin
+
+# 4 workers, uvicorn async — tune based on available cores
+ExecStart=/opt/node-api/venv/bin/gunicorn app.main:app \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8100 \
+    --timeout 300 \
+    --keep-alive 5 \
+    --preload \
+    --access-logfile - \
+    --error-logfile -
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nodeapi
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

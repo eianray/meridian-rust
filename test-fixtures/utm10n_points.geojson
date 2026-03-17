@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "SF City Hall (UTM 10N)", "easting": 551248, "northing": 4179916 },
+      "geometry": { "type": "Point", "coordinates": [551248.0, 4179916.0] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Golden Gate Bridge (UTM 10N)", "easting": 545898, "northing": 4185917 },
+      "geometry": { "type": "Point", "coordinates": [545898.0, 4185917.0] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Oakland City Hall (UTM 10N)", "easting": 565736, "northing": 4182251 },
+      "geometry": { "type": "Point", "coordinates": [565736.0, 4182251.0] }
+    }
+  ]
+}

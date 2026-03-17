@@ -1,0 +1,17 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Study Area" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4200, 37.7770], [-122.4140, 37.7770],
+          [-122.4140, 37.7810], [-122.4200, 37.7810],
+          [-122.4200, 37.7770]
+        ]]
+      }
+    }
+  ]
+}

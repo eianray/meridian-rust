@@ -1,0 +1,101 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "001", "zone": "residential", "area_sqft": 6200 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4200, 37.7780], [-122.4190, 37.7780],
+          [-122.4190, 37.7790], [-122.4200, 37.7790],
+          [-122.4200, 37.7780]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "002", "zone": "residential", "area_sqft": 5800 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4190, 37.7780], [-122.4180, 37.7780],
+          [-122.4180, 37.7790], [-122.4190, 37.7790],
+          [-122.4190, 37.7780]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "003", "zone": "commercial", "area_sqft": 12400 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4180, 37.7780], [-122.4160, 37.7780],
+          [-122.4160, 37.7790], [-122.4180, 37.7790],
+          [-122.4180, 37.7780]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "004", "zone": "residential", "area_sqft": 7100 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4200, 37.7790], [-122.4190, 37.7790],
+          [-122.4190, 37.7800], [-122.4200, 37.7800],
+          [-122.4200, 37.7790]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "005", "zone": "residential", "area_sqft": 6900 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4190, 37.7790], [-122.4180, 37.7790],
+          [-122.4180, 37.7800], [-122.4190, 37.7800],
+          [-122.4190, 37.7790]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "006", "zone": "commercial", "area_sqft": 18000 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4180, 37.7790], [-122.4160, 37.7790],
+          [-122.4160, 37.7800], [-122.4180, 37.7800],
+          [-122.4180, 37.7790]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "007", "zone": "industrial", "area_sqft": 24000 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4160, 37.7780], [-122.4140, 37.7780],
+          [-122.4140, 37.7800], [-122.4160, 37.7800],
+          [-122.4160, 37.7780]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "parcel_id": "008", "zone": "park", "area_sqft": 32000 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-122.4140, 37.7780], [-122.4120, 37.7780],
+          [-122.4120, 37.7810], [-122.4140, 37.7810],
+          [-122.4140, 37.7780]
+        ]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+[package]
+name = "meridian"
+version = "0.4.0"
+edition = "2021"
+
+[lib]
+name = "meridian"
+path = "src/lib.rs"
+
+[[bin]]
+name = "meridian"
+path = "src/main.rs"
+
+[dependencies]
+# GIS
+gdal = { version = "0.19", features = ["bindgen"] }
+gdal-sys = "0.12"
+governor = { version = "0.6", features = ["dashmap"] }
+
+# File handling
+zip = "0.6"
+tempfile = "3"
+indexmap = { version = "2", features = ["serde"] }
+base64 = "0.21"
+
+# Web framework
+axum = { version = "0.7", features = ["multipart", "macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "request-id", "util"] }
+hyper = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# OpenAPI docs
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "6", features = ["axum"] }
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Config / env
+dotenvy = "0.15"
+config = "0.14"
+
+# UUIDs (request IDs)
+uuid = { version = "1", features = ["v4"] }
+
+# Metrics / observability
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# HTTP client (Solana RPC calls)
+reqwest = { version = "0.11", features = ["json"] }
+
+# Database (payment idempotency + ops log)
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+axum-test = "14"
+tokio = { version = "1", features = ["full"] }
+wiremock = "0.6"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "gis_bench"
+harness = false
