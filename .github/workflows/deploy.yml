@@ -16,13 +16,14 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
             set -e
+            export PATH="$PATH:/root/.cargo/bin"
             echo "=== Pulling latest code ==="
             cd /opt/meridian-rust
             git pull origin main
 
             echo "=== Building release binary ==="
             cd /opt/meridian-rust/meridian
-            cargo build --release 2>&1
+            /root/.cargo/bin/cargo build --release 2>&1
 
             echo "=== Restarting service ==="
             systemctl restart meridian-rust
