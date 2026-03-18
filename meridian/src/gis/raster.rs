@@ -226,9 +226,9 @@ fn run_gdaldem_single_sync(
     let mut usage_error: i32 = 0;
     let out_ds = unsafe {
         gdal_sys::GDALDEMProcessing(
-            out_path.to_str().unwrap().as_ptr() as *const i8,
+            out_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
             in_ds.c_dataset(),
-            mode.as_ptr() as *const i8,
+            mode.as_ptr() as *const std::os::raw::c_char,
             std::ptr::null(),  // color filename (null for DEM modes)
             std::ptr::null(),  // options
             &mut usage_error,
@@ -316,10 +316,10 @@ fn run_color_relief_sync(
     let mut usage_error: i32 = 0;
     let out_ds = unsafe {
         gdal_sys::GDALDEMProcessing(
-            out_path.to_str().unwrap().as_ptr() as *const i8,
+            out_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
             in_ds.c_dataset(),
-            b"color-relief\0".as_ptr() as *const i8,
-            color_path.to_str().unwrap().as_ptr() as *const i8,
+            b"color-relief\0".as_ptr() as *const std::os::raw::c_char,
+            color_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
             std::ptr::null(),
             &mut usage_error,
         )
@@ -750,7 +750,7 @@ fn run_raster_convert_sync(
 
         gdal_sys::GDALCreateCopy(
             driver.c_driver(),
-            out_path.to_str().unwrap().as_ptr() as *const i8,
+            out_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
             in_ds.c_dataset(),
             0, // strict
             options_ptr,
