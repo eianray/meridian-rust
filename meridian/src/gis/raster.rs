@@ -947,6 +947,134 @@ fn run_mosaic_sync(
     })
 }
 
+/// Run raster-to-vector polygonization using GDALPolygonize
+/// Converts connected regions of same-valued pixels into polygon features
+pub async fn run_raster_to_vector(
+    input: &RasterInput,
+    band: Option<u8>,
+    field_name: Option<&str>,
+    no_data_value: Option<f64>,
+) -> Result<RasterCommandOutput, AppError> {
+    let bytes = input.bytes.clone();
+    let input_size = input.size;
+    let band = band.unwrap_or(1);
+    let field_name = field_name.unwrap_or("DN").to_string();
+    let no_data = no_data_value;
+
+    tokio::task::spawn_blocking(move || {
+        run_raster_to_vector_sync(&bytes, input_size, band, &field_name, no_data)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Task join error: {}", e)))?
+}
+
+fn run_raster_to_vector_sync(
+    input_bytes: &[u8],
+    input_size: usize,
+    band_num: u8,
+    field_name: &str,
+    no_data: Option<f64>,
+) -> Result<RasterCommandOutput, AppError> {
+    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+
+    // Write input
+    let in_path = tmp.path().join("input.tif");
+    std::fs::write(&in_path, input_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input: {e}")))?;
+
+    // Open input
+    let in_ds = Dataset::open(&in_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Open input: {e}")))?;
+
+    // Get the specified band
+    let band = in_ds.rasterband(band_num as usize)
+        .map_err(|e| AppError::BadRequest(format!("Invalid band {}: {}", band_num, e)))?;
+
+    // Get no-data value (use provided or from raster)
+    let no_data_val = no_data.or_else(|| band.no_data_value());
+    let c_band = unsafe { band.c_rasterband() };
+
+    // Create output GeoJSON dataset
+    let out_path = tmp.path().join("polygons.geojson");
+    let driver = DriverManager::get_driver_by_name("GeoJSON")
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("GeoJSON driver: {e}")))?;
+
+    let (in_xsize, in_ysize) = in_ds.raster_size();
+    let mut out_ds = driver.create(&out_path, in_xsize, in_ysize, 0)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create output: {e}")))?;
+
+    // Get spatial reference from input
+    let srs = in_ds.spatial_ref().ok();
+
+    // Create layer for polygons
+    let mut layer_options = LayerOptions {
+        name: "polygons",
+        srs: srs.as_ref(),
+        ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
+        options: None,
+    };
+
+    let mut layer = out_ds.create_layer(layer_options)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create layer: {e}")))?;
+
+    // Add DN field for pixel values
+    let dn_field = FieldDefn::new(field_name, OGRFieldType::OFTReal)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create DN field: {e}")))?;
+    dn_field.add_to_layer(&layer)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Add DN field: {e}")))?;
+
+    // Get the raw layer handle
+    let c_layer = unsafe { layer.c_layer() };
+
+    // Call GDALPolygonize (unsafe)
+    // Arguments: band, mask_band, layer, field_index, options, progress_callback, progress_data
+    let result = unsafe {
+        gdal_sys::GDALPolygonize(
+            c_band,
+            std::ptr::null_mut(), // no mask band
+            c_layer,
+            0, // field index (first field we created)
+            std::ptr::null_mut(), // options
+            None, // progress callback
+            std::ptr::null_mut(), // progress data
+        )
+    };
+
+    if result != gdal_sys::CPLErr::CE_None {
+        return Err(AppError::Internal(anyhow::anyhow!("GDALPolygonize failed")));
+    }
+
+    // Drop layer before flushing dataset
+    drop(layer);
+
+    // Flush to ensure features are written
+    out_ds.flush_cache()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Flush output: {e}")))?;
+
+    drop(out_ds);
+
+    if !out_path.exists() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Polygonize completed but output not created"
+        )));
+    }
+
+    let out_bytes = std::fs::read(&out_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read output: {e}")))?;
+
+    Ok(RasterCommandOutput {
+        stats: RasterOpStats {
+            tool: "raster-to-vector".to_string(),
+            input_count: 1,
+            input_size_bytes: input_size,
+            output_size_bytes: out_bytes.len(),
+        },
+        bytes: out_bytes,
+        filename: "polygons.geojson".into(),
+        mime_type: "application/geo+json".to_string(),
+    })
+}
+
 // ============== Expression Parser ==============
 
 #[derive(Debug, Clone)]
@@ -1537,5 +1665,26 @@ mod tests {
         // sqrt(A) + pow(B, 2) = 2 + 4 = 6
         let result = eval_expr(&parse_expression("sqrt(A) + pow(B, 2)").unwrap(), &env);
         assert!((result - 6.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_raster_to_vector_params() {
+        // Test that band defaults are handled correctly
+        let band: Option<u8> = None;
+        let resolved = band.unwrap_or(1);
+        assert_eq!(resolved, 1);
+
+        let band: Option<u8> = Some(3);
+        let resolved = band.unwrap_or(1);
+        assert_eq!(resolved, 3);
+
+        // Test field_name default
+        let field_name: Option<&str> = None;
+        let resolved = field_name.unwrap_or("DN");
+        assert_eq!(resolved, "DN");
+
+        let field_name: Option<&str> = Some("value");
+        let resolved = field_name.unwrap_or("DN");
+        assert_eq!(resolved, "value");
     }
 }

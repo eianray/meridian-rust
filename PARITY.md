@@ -17,7 +17,7 @@ Rust and Python intentionally do not expose an identical endpoint surface.
 | Category | Rust-only endpoints | Python-only endpoints |
 |----------|---------------------|-----------------------|
 | Vector tiles | `/v1/vectorize` | — |
-| DEM / raster | `/v1/hillshade`, `/v1/slope`, `/v1/aspect`, `/v1/roughness`, `/v1/color-relief`, `/v1/contours`, `/v1/raster-calc` | — |
+| DEM / raster | `/v1/hillshade`, `/v1/slope`, `/v1/aspect`, `/v1/roughness`, `/v1/color-relief`, `/v1/contours`, `/v1/raster-calc`, `/v1/raster-to-vector` | — |
 | Pricing | — | `/v1/pricing` (file-size + operation metadata) |
 | DXF | — | DXF import/export utilities |
 | Jobs / async | — | Background job flows (long-running operations) |

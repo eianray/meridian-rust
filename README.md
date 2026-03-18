@@ -101,6 +101,7 @@ The Rust service and the Python service are close in shape, but not at full beha
 | `POST /v1/color-relief` | Hypsometric tint / color relief via `gdaldem color-relief` |
 | `POST /v1/contours` | Contour extraction via `gdal_contour` (GeoJSON output) |
 | `POST /v1/raster-calc` | Pixel math across raster inputs via `gdal_calc.py` |
+| `POST /v1/raster-to-vector` | Raster polygonization to GeoJSON polygons via `GDALPolygonize` |
 
 ### Batch
 | Endpoint | Description |
@@ -221,6 +222,9 @@ Now live via Rust shell-outs to `gdaldem`, `gdal_contour`, and `gdal_calc.py`:
 - [x] `/v1/color-relief` — hypsometric tinting from elevation ramp (`gdaldem color-relief`)
 - [x] `/v1/contours` — contour lines/polygons at specified interval (`gdal_contour`)
 - [x] `/v1/raster-calc` — pixel-level math on up to 26 raster inputs (`gdal_calc.py`)
+
+### Raster-to-Vector Conversion
+- [x] `/v1/raster-to-vector` — polygonize raster to GeoJSON via `GDALPolygonize` (single-band, connected regions → polygons with DN field)
 
 ### Hydrology (backlog — GRASS GIS shell-out)
 - [ ] `/v1/watershed` — pour point → catchment polygon

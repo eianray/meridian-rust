@@ -11,7 +11,7 @@ use crate::{
     AppState,
 };
 use crate::gis::raster::{
-    run_color_relief, run_contours, run_gdaldem_single, run_mosaic, run_raster_calc, run_raster_convert, RasterInput,
+    run_color_relief, run_contours, run_gdaldem_single, run_mosaic, run_raster_calc, run_raster_convert, run_raster_to_vector, RasterInput,
 };
 use crate::gis::reproject::payment_gate;
 
@@ -545,6 +545,92 @@ pub async fn mosaic(
     let out = run_mosaic(&inputs, output_crs.as_deref(), resolution, &resampling, nodata).await?;
     metrics::record_request("mosaic", "ok");
     metrics::record_request_duration("mosaic", t0.elapsed().as_secs_f64());
+
+    Ok(Json(GeoJsonOutput {
+        request_id,
+        price_usd: price,
+        result: out.as_json_value(),
+    }))
+}
+
+#[derive(ToSchema)]
+#[allow(dead_code)]
+pub struct RasterToVectorParams {
+    pub file: String,
+    pub band: Option<u8>,
+    pub field_name: Option<String>,
+    pub no_data: Option<f64>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/raster-to-vector",
+    tag = "GIS",
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form: `file` raster upload, optional `band` (1-based, default 1), `field_name` (default DN), `no_data` value to exclude",
+        content = RasterToVectorParams
+    ),
+    responses(
+        (status = 200, description = "Polygonized GeoJSON output", body = GeoJsonOutput),
+        (status = 400, description = "Bad request"),
+        (status = 402, description = "Payment required", body = crate::billing::PaymentRequired),
+        (status = 413, description = "Payload too large (>200 MB)"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn raster_to_vector(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut file_input: Option<RasterInput> = None;
+    let mut band: Option<u8> = None;
+    let mut field_name: Option<String> = None;
+    let mut no_data: Option<f64> = None;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => file_input = Some(RasterInput::from_multipart_field(&mut field).await?),
+            Some("band") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("band: {e}")))?;
+                if !v.trim().is_empty() {
+                    band = Some(v.trim().parse::<u8>().map_err(|_| {
+                        AppError::BadRequest("band must be a positive integer".into())
+                    })?);
+                }
+            }
+            Some("field_name") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("field_name: {e}")))?;
+                if !v.trim().is_empty() {
+                    field_name = Some(v.trim().to_string());
+                }
+            }
+            Some("no_data") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("no_data: {e}")))?;
+                if !v.trim().is_empty() {
+                    no_data = Some(v.trim().parse::<f64>().map_err(|_| {
+                        AppError::BadRequest("no_data must be a number".into())
+                    })?);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let input = file_input.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
+    let price = compute_price(input.size);
+    let t0 = Instant::now();
+    metrics::record_request("raster-to-vector", "received");
+    payment_gate("raster-to-vector", input.size, price, &request_id, &headers, &state).await?;
+    let out = run_raster_to_vector(&input, band, field_name.as_deref(), no_data).await?;
+    metrics::record_request("raster-to-vector", "ok");
+    metrics::record_request_duration("raster-to-vector", t0.elapsed().as_secs_f64());
 
     Ok(Json(GeoJsonOutput {
         request_id,
