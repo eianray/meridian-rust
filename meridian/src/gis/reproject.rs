@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 use crate::{
     billing::{build_payment_required, log_dev_operation, verify_payment, PaymentError},
     error::AppError,
-    gis::{compute_price, normalize_geom_to_wgs84, validate_geojson_bytes, GeoJsonInput, GeoJsonOutput},
+    gis::{compute_price, normalize_crs_string, normalize_geom_to_wgs84, validate_geojson_bytes, GeoJsonInput, GeoJsonOutput},
     metrics,
     middleware::request_id::RequestId,
     AppState,
@@ -111,12 +111,15 @@ pub async fn reproject(
     if crs.trim().is_empty() {
         return Err(AppError::BadRequest("'target_crs' cannot be empty".into()));
     }
-    crate::gis::validate_crs_string(crs.trim())?;
+    let target_crs_normalized = normalize_crs_string(crs.trim())?;
 
     let request_start = Instant::now();
     metrics::record_request("reproject", "received");
 
-    let src_crs = source_crs.unwrap_or_else(|| "EPSG:4326".to_string());
+    let src_crs = source_crs
+        .map(|s| normalize_crs_string(&s))
+        .transpose()?
+        .unwrap_or_else(|| "EPSG:4326".to_string());
     let geojson_str = validate_geojson_bytes(&input.bytes)?;
     let price = compute_price(input.size);
 
@@ -143,7 +146,7 @@ pub async fn reproject(
 
     let gdal_start = Instant::now();
     let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
-        do_reproject(geojson_str, src_crs, crs)
+        do_reproject(geojson_str, src_crs, target_crs_normalized)
     }))
     .await
     .map_err(|_| AppError::Timeout)?

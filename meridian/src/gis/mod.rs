@@ -103,8 +103,9 @@ pub struct GeoJsonOutput {
 
 // ── GIS helpers ───────────────────────────────────────────────────────────────
 
-/// Reject CRS strings that look like file paths or contain null bytes.
-pub fn validate_crs_string(crs: &str) -> Result<(), AppError> {
+/// Normalize and validate a CRS string.
+/// Accepts: EPSG codes (with/without prefix), PROJ4 strings, WKT, and common aliases.
+pub fn normalize_crs_string(crs: &str) -> Result<String, AppError> {
     let s = crs.trim();
     if s.is_empty() {
         return Err(AppError::BadRequest("CRS string cannot be empty".into()));
@@ -114,7 +115,57 @@ pub fn validate_crs_string(crs: &str) -> Result<(), AppError> {
             format!("Invalid CRS string (looks like a path): '{}'", &s[..s.len().min(50)])
         ));
     }
-    Ok(())
+
+    // Check for common aliases (case-insensitive)
+    let upper = s.to_uppercase();
+    match upper.as_str() {
+        "WGS84" | "WGS 84" | "WGS-84" => return Ok("EPSG:4326".to_string()),
+        "WEBMERCATOR" | "WEB MERCATOR" | "WEB-MERCATOR" | "GOOGLE MERCATOR" | "SPHERICAL MERCATOR" => {
+            return Ok("EPSG:3857".to_string());
+        }
+        _ => {}
+    }
+
+    // Check for bare integer (EPSG code without prefix)
+    if s.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(format!("EPSG:{}", s));
+    }
+
+    // Ensure EPSG prefix is uppercase for consistency
+    if s.to_lowercase().starts_with("epsg:") {
+        return Ok(format!("EPSG:{}", &s[5..]));
+    }
+
+    // PROJ4 strings start with +
+    if s.starts_with('+') {
+        // Basic validation: must contain +proj
+        if !s.contains("+proj") {
+            return Err(AppError::BadRequest(
+                "Invalid PROJ4 string: must contain +proj".into()
+            ));
+        }
+        return Ok(s.to_string());
+    }
+
+    // WKT strings typically start with GEOGCS, PROJCS, or GEOCCS
+    let wkt_starts = ["GEOGCS", "PROJCS", "GEOCCS", "LOCAL_CS", "VERT_CS"];
+    if wkt_starts.iter().any(|&prefix| upper.starts_with(prefix)) {
+        return Ok(s.to_string());
+    }
+
+    // Standard EPSG:XXXX format (already has prefix)
+    if s.contains(':') {
+        return Ok(s.to_string());
+    }
+
+    // Unknown format - let GDAL try to parse it
+    Ok(s.to_string())
+}
+
+/// Legacy alias for backward compatibility.
+/// Reject CRS strings that look like file paths or contain null bytes.
+pub fn validate_crs_string(crs: &str) -> Result<(), AppError> {
+    normalize_crs_string(crs).map(|_| ())
 }
 
 /// Normalize a GDAL geometry to WGS84 (EPSG:4326) from the given source CRS, in-place.
@@ -125,14 +176,12 @@ pub fn normalize_geom_to_wgs84(
 ) -> Result<(), AppError> {
     use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
 
-    let crs = source_crs.trim();
+    let crs = normalize_crs_string(source_crs)?;
     if crs.eq_ignore_ascii_case("EPSG:4326") {
         return Ok(());
     }
 
-    validate_crs_string(crs)?;
-
-    let mut src_srs = SpatialRef::from_definition(crs)
+    let mut src_srs = SpatialRef::from_definition(&crs)
         .map_err(|e| AppError::BadRequest(format!("Invalid source_crs '{crs}': {e}")))?;
     src_srs.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
 

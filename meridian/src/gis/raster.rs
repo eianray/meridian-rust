@@ -10,6 +10,7 @@ use tempfile::TempDir;
 use utoipa::ToSchema;
 
 use crate::error::AppError;
+use crate::gis::normalize_crs_string;
 
 pub const RASTER_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -47,12 +48,84 @@ impl RasterInput {
             return Err(AppError::BadRequest("Empty file".into()));
         }
 
+        // If it's a zip file, extract the first .tif
+        let (bytes, filename) = if filename.to_lowercase().ends_with(".zip") {
+            extract_tiff_from_zip(&buf, &filename)?
+        } else {
+            (buf, filename)
+        };
+
         Ok(Self {
             filename,
-            size: buf.len(),
-            bytes: buf,
+            size: bytes.len(),
+            bytes,
         })
     }
+}
+
+/// Sanitize a zip entry path to prevent directory traversal attacks
+fn sanitize_zip_path(name: &str) -> Option<std::path::PathBuf> {
+    // Reject absolute paths, parent directory traversal, null bytes
+    if name.starts_with('/') || name.starts_with('\\') || name.contains("..") || name.contains('\0') {
+        return None;
+    }
+    // Strip leading ./ or .\
+    let cleaned = name.trim_start_matches("./").trim_start_matches(".\\");
+    if cleaned.is_empty() || cleaned.starts_with('/') || cleaned.starts_with('\\') {
+        return None;
+    }
+    Some(std::path::PathBuf::from(cleaned))
+}
+
+/// Extract the first .tif file from a zip archive
+fn extract_tiff_from_zip(zip_bytes: &[u8], original_name: &str) -> Result<(Vec<u8>, String), AppError> {
+    use std::io::Read;
+
+    let cursor = std::io::Cursor::new(zip_bytes);
+    let mut zip = zip::ZipArchive::new(cursor)
+        .map_err(|e| AppError::BadRequest(format!("Invalid zip file: {e}")))?;
+
+    // Collect all .tif files in the archive
+    let mut tiff_indices: Vec<usize> = Vec::new();
+    for i in 0..zip.len() {
+        let file = zip.by_index(i)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Zip read: {e}")))?;
+        let name = file.name();
+        // Skip entries with invalid paths (directory traversal protection)
+        if sanitize_zip_path(name).is_none() {
+            continue;
+        }
+        let name_lower = name.to_lowercase();
+        if name_lower.ends_with(".tif") || name_lower.ends_with(".tiff") {
+            tiff_indices.push(i);
+        }
+    }
+
+    // Check for multiple rasters
+    if tiff_indices.len() > 1 {
+        return Err(AppError::BadRequest(
+            "Zip contains multiple raster files. Upload a single .tif or .tiff per request.".into()
+        ));
+    }
+
+    // Check for no rasters
+    if tiff_indices.is_empty() {
+        return Err(AppError::BadRequest("No .tif file found in zip archive".into()));
+    }
+
+    // Extract the single .tif file
+    let idx = tiff_indices[0];
+    let mut bytes = Vec::new();
+    let mut file = zip.by_index(idx)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Zip read: {e}")))?;
+    file.read_to_end(&mut bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read zip entry: {e}")))?;
+
+    let stem = original_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or("input");
+    Ok((bytes, format!("{}.tif", stem)))
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -596,6 +669,284 @@ fn run_raster_calc_sync(
     })
 }
 
+/// Run raster format conversion
+pub async fn run_raster_convert(
+    input: &RasterInput,
+    output_format: &str,
+) -> Result<RasterCommandOutput, AppError> {
+    let format_upper = output_format.to_uppercase();
+    let (driver_name, ext, mime_type) = match format_upper.as_str() {
+        "GTIFF" | "GTIF" | "TIF" | "TIFF" => ("GTiff", "tif", "image/tiff"),
+        "PNG" => ("PNG", "png", "image/png"),
+        "JPEG" | "JPG" => ("JPEG", "jpg", "image/jpeg"),
+        "AAIGRID" | "ASCII" | "ASC" => ("AAIGrid", "asc", "text/plain"),
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "Unsupported output format '{}'. Options: GTiff, PNG, JPEG, AAIGrid",
+                output_format
+            )));
+        }
+    };
+
+    let bytes = input.bytes.clone();
+    let input_size = input.size;
+    let driver = driver_name.to_string();
+    let ext_owned = ext.to_string();
+    let mime = mime_type.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        run_raster_convert_sync(&bytes, input_size, &driver, &ext_owned, &mime)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Task join error: {}", e)))?
+}
+
+fn run_raster_convert_sync(
+    input_bytes: &[u8],
+    input_size: usize,
+    driver_name: &str,
+    ext: &str,
+    mime_type: &str,
+) -> Result<RasterCommandOutput, AppError> {
+    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+
+    // Write input to temp file
+    let in_path = tmp.path().join("input.tif");
+    std::fs::write(&in_path, input_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input: {e}")))?;
+
+    // Open input dataset
+    let in_ds = Dataset::open(&in_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Open input: {e}")))?;
+
+    let out_path = tmp.path().join(format!("output.{}", ext));
+
+    // Standard conversion using create_copy
+    let driver = DriverManager::get_driver_by_name(driver_name)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Driver '{}': {e}", driver_name)))?;
+
+    let mut options = Vec::new();
+    if driver_name == "GTiff" {
+        options.push("COMPRESS=DEFLATE");
+    }
+
+    let copy_options: Option<Vec<std::ffi::CString>> = if options.is_empty() {
+        None
+    } else {
+        Some(options.iter().map(|s| std::ffi::CString::new(*s).unwrap()).collect())
+    };
+
+    let out_ds = unsafe {
+        let options_ptr: *mut *mut i8 = if let Some(ref opts) = copy_options {
+            let mut ptrs: Vec<*mut i8> = opts
+                .iter()
+                .map(|s| s.as_ptr() as *mut i8)
+                .collect();
+            ptrs.push(std::ptr::null_mut());
+            ptrs.as_mut_ptr()
+        } else {
+            std::ptr::null_mut()
+        };
+
+        gdal_sys::GDALCreateCopy(
+            driver.c_driver(),
+            out_path.to_str().unwrap().as_ptr() as *const i8,
+            in_ds.c_dataset(),
+            0, // strict
+            options_ptr,
+            None, // progress callback
+            std::ptr::null_mut(), // progress data
+        )
+    };
+
+    if out_ds.is_null() {
+        return Err(AppError::Internal(anyhow::anyhow!("GDALCreateCopy failed")));
+    }
+
+    unsafe { gdal_sys::GDALClose(out_ds) };
+
+    // Read output
+    if !out_path.exists() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Raster conversion completed but output not created"
+        )));
+    }
+
+    let out_bytes = std::fs::read(&out_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read output: {e}")))?;
+
+    Ok(RasterCommandOutput {
+        stats: RasterOpStats {
+            tool: "raster-convert".to_string(),
+            input_count: 1,
+            input_size_bytes: input_size,
+            output_size_bytes: out_bytes.len(),
+        },
+        bytes: out_bytes,
+        filename: format!("converted.{}", ext),
+        mime_type: mime_type.to_string(),
+    })
+}
+
+/// Run mosaic: merge multiple rasters into a single GeoTIFF
+pub async fn run_mosaic(
+    inputs: &[RasterInput],
+    output_crs: Option<&str>,
+    resolution: Option<f64>,
+    resampling: &str,
+    nodata: Option<f64>,
+) -> Result<RasterCommandOutput, AppError> {
+    if inputs.len() < 2 {
+        return Err(AppError::BadRequest("Mosaic requires at least 2 input rasters".into()));
+    }
+    if inputs.len() > 10 {
+        return Err(AppError::BadRequest("Mosaic supports maximum 10 input rasters".into()));
+    }
+
+    // Validate resampling method
+    let resampling_lower = resampling.to_lowercase();
+    if !["nearest", "bilinear", "cubic"].contains(&resampling_lower.as_str()) {
+        return Err(AppError::BadRequest(
+            "Invalid resampling method. Use: nearest, bilinear, or cubic".into()
+        ));
+    }
+
+    // Validate output CRS if provided
+    let output_crs_normalized = if let Some(crs) = output_crs {
+        Some(normalize_crs_string(crs)?)
+    } else {
+        None
+    };
+
+    // Clone inputs for blocking task
+    let inputs_data: Vec<(Vec<u8>, String)> = inputs
+        .iter()
+        .map(|r| (r.bytes.clone(), r.filename.clone()))
+        .collect();
+    let total_input_size: usize = inputs.iter().map(|r| r.size).sum();
+    let resampling_owned = resampling_lower;
+
+    tokio::task::spawn_blocking(move || {
+        run_mosaic_sync(&inputs_data, total_input_size, output_crs_normalized.as_deref(), resolution, &resampling_owned, nodata)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Task join error: {}", e)))?
+}
+
+fn run_mosaic_sync(
+    inputs: &[(Vec<u8>, String)],
+    total_input_size: usize,
+    output_crs: Option<&str>,
+    resolution: Option<f64>,
+    resampling: &str,
+    nodata: Option<f64>,
+) -> Result<RasterCommandOutput, AppError> {
+    use std::process::Command;
+
+    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+
+    // Write all input rasters to temp files
+    let mut input_paths: Vec<std::path::PathBuf> = Vec::new();
+    for (i, (bytes, filename)) in inputs.iter().enumerate() {
+        let ext = filename.rsplit_once('.').map(|(_, e)| e).unwrap_or("tif");
+        let in_path = tmp.path().join(format!("input_{}.", i)).with_extension(ext);
+        std::fs::write(&in_path, bytes)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input {}: {}", i, e)))?;
+        input_paths.push(in_path);
+    }
+
+    // Build VRT using gdalbuildvrt
+    let vrt_path = tmp.path().join("mosaic.vrt");
+
+    let mut cmd = Command::new("gdalbuildvrt");
+    cmd.arg("-overwrite");
+
+    // Add resampling option
+    let resamp_opt = match resampling {
+        "bilinear" => "bilinear",
+        "cubic" => "cubic",
+        _ => "nearest",
+    };
+    cmd.arg("-r").arg(resamp_opt);
+
+    // Add nodata if specified
+    if let Some(nd) = nodata {
+        cmd.arg("-srcnodata").arg(nd.to_string());
+        cmd.arg("-vrtnodata").arg(nd.to_string());
+    }
+
+    cmd.arg(&vrt_path);
+    for path in &input_paths {
+        cmd.arg(path);
+    }
+
+    let output = cmd.output()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("gdalbuildvrt failed: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Internal(anyhow::anyhow!("gdalbuildvrt error: {}", stderr)));
+    }
+
+    // Translate VRT to GeoTIFF using gdal_translate
+    let out_path = tmp.path().join("mosaic.tif");
+
+    let mut cmd = Command::new("gdal_translate");
+    cmd.arg("-of").arg("GTiff");
+    cmd.arg("-co").arg("COMPRESS=DEFLATE");
+
+    // Add output CRS if specified
+    if let Some(crs) = output_crs {
+        cmd.arg("-t_srs").arg(crs);
+    }
+
+    // Add resolution if specified
+    if let Some(res) = resolution {
+        cmd.arg("-tr").arg(res.to_string()).arg(res.to_string());
+    }
+
+    // Add resampling for translation
+    let resamp_alg = match resampling {
+        "bilinear" => "bilinear",
+        "cubic" => "cubic",
+        _ => "nearest",
+    };
+    cmd.arg("-r").arg(resamp_alg);
+
+    cmd.arg(&vrt_path);
+    cmd.arg(&out_path);
+
+    let output = cmd.output()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("gdal_translate failed: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Internal(anyhow::anyhow!("gdal_translate error: {}", stderr)));
+    }
+
+    // Read output
+    if !out_path.exists() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Mosaic completed but output not created"
+        )));
+    }
+
+    let out_bytes = std::fs::read(&out_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read output: {e}")))?;
+
+    Ok(RasterCommandOutput {
+        stats: RasterOpStats {
+            tool: "mosaic".to_string(),
+            input_count: inputs.len(),
+            input_size_bytes: total_input_size,
+            output_size_bytes: out_bytes.len(),
+        },
+        bytes: out_bytes,
+        filename: "mosaic.tif".into(),
+        mime_type: "image/tiff".to_string(),
+    })
+}
+
 // ============== Expression Parser ==============
 
 #[derive(Debug, Clone)]
@@ -606,22 +957,105 @@ enum Expr {
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
+    Pow(Box<Expr>, Box<Expr>),
     Neg(Box<Expr>),
+    Abs(Box<Expr>),
+    Sqrt(Box<Expr>),
+    Min(Box<Expr>, Box<Expr>),
+    Max(Box<Expr>, Box<Expr>),
+    Sin(Box<Expr>),
+    Cos(Box<Expr>),
+    Tan(Box<Expr>),
+    Atan2(Box<Expr>, Box<Expr>),
+    // Comparison operators for conditional
+    Gt(Box<Expr>, Box<Expr>),   // >
+    Lt(Box<Expr>, Box<Expr>),   // <
+    Gte(Box<Expr>, Box<Expr>),  // >=
+    Lte(Box<Expr>, Box<Expr>),  // <=
+    Eq(Box<Expr>, Box<Expr>),   // ==
+    Neq(Box<Expr>, Box<Expr>),  // !=
+    // Conditional: where(condition, true_val, false_val)
+    Where(Box<Expr>, Box<Expr>, Box<Expr>),
 }
 
 fn parse_expression(s: &str) -> Result<Expr, String> {
     let mut chars: Vec<char> = s.chars().collect();
-    parse_expr(&mut chars)
+    parse_where(&mut chars)
 }
 
-fn parse_expr(chars: &mut Vec<char>) -> Result<Expr, String> {
-    parse_add_sub(chars)
+// where(condition, true_val, false_val) - lowest precedence
+fn parse_where(chars: &mut Vec<char>) -> Result<Expr, String> {
+    skip_whitespace(chars);
+    
+    // Check for "where" keyword
+    if starts_with_keyword(chars, "where") {
+        consume_keyword(chars, "where")?;
+        skip_whitespace(chars);
+        expect_char(chars, '(')?;
+        let condition = parse_comparison(chars)?;
+        skip_whitespace(chars);
+        expect_char(chars, ',')?;
+        let true_val = parse_where(chars)?;
+        skip_whitespace(chars);
+        expect_char(chars, ',')?;
+        let false_val = parse_where(chars)?;
+        skip_whitespace(chars);
+        expect_char(chars, ')')?;
+        return Ok(Expr::Where(Box::new(condition), Box::new(true_val), Box::new(false_val)));
+    }
+    
+    parse_comparison(chars)
+}
+
+// Comparison operators: >, <, >=, <=, ==, !=
+fn parse_comparison(chars: &mut Vec<char>) -> Result<Expr, String> {
+    let mut left = parse_add_sub(chars)?;
+    skip_whitespace(chars);
+    
+    while !chars.is_empty() {
+        if starts_with(chars, ">=") {
+            chars.remove(0);
+            chars.remove(0);
+            let right = parse_add_sub(chars)?;
+            left = Expr::Gte(Box::new(left), Box::new(right));
+        } else if starts_with(chars, "<=") {
+            chars.remove(0);
+            chars.remove(0);
+            let right = parse_add_sub(chars)?;
+            left = Expr::Lte(Box::new(left), Box::new(right));
+        } else if starts_with(chars, "==") {
+            chars.remove(0);
+            chars.remove(0);
+            let right = parse_add_sub(chars)?;
+            left = Expr::Eq(Box::new(left), Box::new(right));
+        } else if starts_with(chars, "!=") {
+            chars.remove(0);
+            chars.remove(0);
+            let right = parse_add_sub(chars)?;
+            left = Expr::Neq(Box::new(left), Box::new(right));
+        } else if chars[0] == '>' {
+            chars.remove(0);
+            let right = parse_add_sub(chars)?;
+            left = Expr::Gt(Box::new(left), Box::new(right));
+        } else if chars[0] == '<' {
+            chars.remove(0);
+            let right = parse_add_sub(chars)?;
+            left = Expr::Lt(Box::new(left), Box::new(right));
+        } else {
+            break;
+        }
+        skip_whitespace(chars);
+    }
+    
+    Ok(left)
 }
 
 fn parse_add_sub(chars: &mut Vec<char>) -> Result<Expr, String> {
     let mut left = parse_mul_div(chars)?;
 
     while !chars.is_empty() {
+        skip_whitespace(chars);
+        if chars.is_empty() { break; }
         let op = chars[0];
         if op == '+' {
             chars.remove(0);
@@ -643,12 +1077,14 @@ fn parse_mul_div(chars: &mut Vec<char>) -> Result<Expr, String> {
     let mut left = parse_unary(chars)?;
 
     while !chars.is_empty() {
-        let op = chars[0];
-        if op == '*' {
+        skip_whitespace(chars);
+        if chars.is_empty() { break; }
+        
+        if chars[0] == '*' {
             chars.remove(0);
             let right = parse_unary(chars)?;
             left = Expr::Mul(Box::new(left), Box::new(right));
-        } else if op == '/' {
+        } else if chars[0] == '/' {
             chars.remove(0);
             let right = parse_unary(chars)?;
             left = Expr::Div(Box::new(left), Box::new(right));
@@ -661,19 +1097,97 @@ fn parse_mul_div(chars: &mut Vec<char>) -> Result<Expr, String> {
 }
 
 fn parse_unary(chars: &mut Vec<char>) -> Result<Expr, String> {
+    skip_whitespace(chars);
     if !chars.is_empty() && chars[0] == '-' {
         chars.remove(0);
-        let expr = parse_primary(chars)?;
+        let expr = parse_pow(chars)?;
         return Ok(Expr::Neg(Box::new(expr)));
     }
+    parse_pow(chars)
+}
+
+fn parse_pow(chars: &mut Vec<char>) -> Result<Expr, String> {
+    let left = parse_call_or_primary(chars)?;
+    
+    skip_whitespace(chars);
+    if starts_with(chars, "**") {
+        chars.remove(0);
+        chars.remove(0);
+        // Right-associative: recurse on the right side
+        let right = parse_pow(chars)?;
+        Ok(Expr::Pow(Box::new(left), Box::new(right)))
+    } else {
+        Ok(left)
+    }
+}
+
+fn parse_call_or_primary(chars: &mut Vec<char>) -> Result<Expr, String> {
+    skip_whitespace(chars);
+    
+    // Check for function calls: abs, sqrt, min, max, sin, cos, tan, atan2, pow
+    if chars.len() >= 3 {
+        let possible_fn: String = chars.iter().take(6).collect();
+        let fn_name = possible_fn.chars().take_while(|c| c.is_ascii_alphanumeric()).collect::<String>();
+        
+        match fn_name.as_str() {
+            "abs" | "sqrt" | "sin" | "cos" | "tan" | "min" | "max" | "atan2" | "pow" => {
+                // Consume the function name
+                for _ in 0..fn_name.len() {
+                    chars.remove(0);
+                }
+                skip_whitespace(chars);
+                expect_char(chars, '(')?;
+                
+                let expr = match fn_name.as_str() {
+                    "abs" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Abs(Box::new(arg))
+                    }
+                    "sqrt" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Sqrt(Box::new(arg))
+                    }
+                    "sin" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Sin(Box::new(arg))
+                    }
+                    "cos" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Cos(Box::new(arg))
+                    }
+                    "tan" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Tan(Box::new(arg))
+                    }
+                    "min" | "max" | "atan2" | "pow" => {
+                        let arg1 = parse_where(chars)?;
+                        skip_whitespace(chars);
+                        expect_char(chars, ',')?;
+                        let arg2 = parse_where(chars)?;
+                        match fn_name.as_str() {
+                            "min" => Expr::Min(Box::new(arg1), Box::new(arg2)),
+                            "max" => Expr::Max(Box::new(arg1), Box::new(arg2)),
+                            "atan2" => Expr::Atan2(Box::new(arg1), Box::new(arg2)),
+                            "pow" => Expr::Pow(Box::new(arg1), Box::new(arg2)),
+                            _ => unreachable!()
+                        }
+                    }
+                    _ => unreachable!()
+                };
+                
+                skip_whitespace(chars);
+                expect_char(chars, ')')?;
+                return Ok(expr);
+            }
+            _ => {}
+        }
+    }
+    
     parse_primary(chars)
 }
 
 fn parse_primary(chars: &mut Vec<char>) -> Result<Expr, String> {
-    // Skip whitespace
-    while !chars.is_empty() && chars[0].is_whitespace() {
-        chars.remove(0);
-    }
+    skip_whitespace(chars);
 
     if chars.is_empty() {
         return Err("Unexpected end of expression".to_string());
@@ -682,10 +1196,8 @@ fn parse_primary(chars: &mut Vec<char>) -> Result<Expr, String> {
     // Parentheses
     if chars[0] == '(' {
         chars.remove(0);
-        let expr = parse_expr(chars)?;
-        while !chars.is_empty() && chars[0].is_whitespace() {
-            chars.remove(0);
-        }
+        let expr = parse_where(chars)?;
+        skip_whitespace(chars);
         if chars.is_empty() || chars[0] != ')' {
             return Err("Missing closing parenthesis".to_string());
         }
@@ -716,31 +1228,158 @@ fn parse_primary(chars: &mut Vec<char>) -> Result<Expr, String> {
     // Variable (uppercase letter A-Z)
     if chars[0].is_ascii_uppercase() {
         let var = chars.remove(0);
-        if !var.is_ascii_uppercase() {
-            return Err(format!("Invalid variable: {}", var));
-        }
         return Ok(Expr::Var(var));
     }
 
     Err(format!("Unexpected character: {}", chars[0]))
 }
 
+// Helper functions
+fn skip_whitespace(chars: &mut Vec<char>) {
+    while !chars.is_empty() && chars[0].is_whitespace() {
+        chars.remove(0);
+    }
+}
+
+fn starts_with(chars: &[char], prefix: &str) -> bool {
+    if chars.len() < prefix.len() {
+        return false;
+    }
+    chars.iter().zip(prefix.chars()).all(|(a, b)| *a == b)
+}
+
+fn starts_with_keyword(chars: &[char], keyword: &str) -> bool {
+    if chars.len() < keyword.len() {
+        return false;
+    }
+    let prefix: String = chars.iter().take(keyword.len()).collect();
+    prefix.eq_ignore_ascii_case(keyword)
+}
+
+fn consume_keyword(chars: &mut Vec<char>, keyword: &str) -> Result<(), String> {
+    if !starts_with_keyword(chars, keyword) {
+        return Err(format!("Expected keyword: {}", keyword));
+    }
+    for _ in 0..keyword.len() {
+        chars.remove(0);
+    }
+    Ok(())
+}
+
+fn expect_char(chars: &mut Vec<char>, expected: char) -> Result<(), String> {
+    skip_whitespace(chars);
+    if chars.is_empty() {
+        return Err(format!("Expected '{}' but reached end of expression", expected));
+    }
+    if chars[0] != expected {
+        return Err(format!("Expected '{}' but found '{}'", expected, chars[0]));
+    }
+    chars.remove(0);
+    Ok(())
+}
+
 fn eval_expr(expr: &Expr, env: &BTreeMap<char, f32>) -> f32 {
     match expr {
         Expr::Num(n) => *n,
-        Expr::Var(c) => env.get(c).copied().unwrap_or(0.0),
-        Expr::Add(a, b) => eval_expr(a, env) + eval_expr(b, env),
-        Expr::Sub(a, b) => eval_expr(a, env) - eval_expr(b, env),
-        Expr::Mul(a, b) => eval_expr(a, env) * eval_expr(b, env),
-        Expr::Div(a, b) => {
-            let b_val = eval_expr(b, env);
-            if b_val == 0.0 {
-                NAN
-            } else {
-                eval_expr(a, env) / b_val
-            }
+        Expr::Var(c) => env.get(c).copied().unwrap_or(f32::NAN),
+        Expr::Add(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av + bv }
         }
-        Expr::Neg(a) => -eval_expr(a, env),
+        Expr::Sub(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av - bv }
+        }
+        Expr::Mul(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av * bv }
+        }
+        Expr::Div(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else if bv == 0.0 { f32::NAN } else { av / bv }
+        }
+        Expr::Pow(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av.powf(bv) }
+        }
+        Expr::Neg(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { -av }
+        }
+        Expr::Abs(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.abs() }
+        }
+        Expr::Sqrt(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.sqrt() }
+        }
+        Expr::Min(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av.min(bv) }
+        }
+        Expr::Max(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av.max(bv) }
+        }
+        Expr::Sin(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.sin() }
+        }
+        Expr::Cos(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.cos() }
+        }
+        Expr::Tan(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.tan() }
+        }
+        Expr::Atan2(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { av.atan2(bv) }
+        }
+        Expr::Gt(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { if av > bv { 1.0 } else { 0.0 } }
+        }
+        Expr::Lt(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { if av < bv { 1.0 } else { 0.0 } }
+        }
+        Expr::Gte(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { if av >= bv { 1.0 } else { 0.0 } }
+        }
+        Expr::Lte(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { if av <= bv { 1.0 } else { 0.0 } }
+        }
+        Expr::Eq(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { if av == bv { 1.0 } else { 0.0 } }
+        }
+        Expr::Neq(a, b) => {
+            let av = eval_expr(a, env);
+            let bv = eval_expr(b, env);
+            if av.is_nan() || bv.is_nan() { f32::NAN } else { if av != bv { 1.0 } else { 0.0 } }
+        }
+        Expr::Where(cond, true_val, false_val) => {
+            let cond_val = eval_expr(cond, env);
+            if cond_val.is_nan() { f32::NAN } else if cond_val != 0.0 { eval_expr(true_val, env) } else { eval_expr(false_val, env) }
+        }
     }
 }
 
@@ -796,5 +1435,107 @@ mod tests {
         assert_eq!(eval_expr(&parse_expression("A*B").unwrap(), &env), 50.0);
         assert_eq!(eval_expr(&parse_expression("A/B").unwrap(), &env), 2.0);
         assert_eq!(eval_expr(&parse_expression("(A+B)/3").unwrap(), &env), 5.0);
+    }
+
+    #[test]
+    fn test_power_operator() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 2.0);
+        env.insert('B', 3.0);
+
+        // A**B = 2^3 = 8
+        assert!((eval_expr(&parse_expression("A**B").unwrap(), &env) - 8.0).abs() < 0.001);
+        // pow(A,B) = 8
+        assert!((eval_expr(&parse_expression("pow(A,B)").unwrap(), &env) - 8.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_power_precedence() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 2.0f32);
+        // -A**2 should be -(A**2) = -4, not (-A)**2 = 4
+        let expr = parse_expression("-A**2").unwrap();
+        assert_eq!(eval_expr(&expr, &env), -4.0);
+        // 2**3**2 should be 2**(3**2) = 2**9 = 512 (right-associative)
+        let expr2 = parse_expression("2**3**2").unwrap();
+        assert_eq!(eval_expr(&expr2, &env), 512.0);
+    }
+
+    #[test]
+    fn test_abs_sqrt() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', -5.0);
+        env.insert('B', 16.0);
+
+        assert_eq!(eval_expr(&parse_expression("abs(A)").unwrap(), &env), 5.0);
+        assert_eq!(eval_expr(&parse_expression("sqrt(B)").unwrap(), &env), 4.0);
+    }
+
+    #[test]
+    fn test_min_max() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 10.0);
+        env.insert('B', 5.0);
+
+        assert_eq!(eval_expr(&parse_expression("min(A,B)").unwrap(), &env), 5.0);
+        assert_eq!(eval_expr(&parse_expression("max(A,B)").unwrap(), &env), 10.0);
+    }
+
+    #[test]
+    fn test_trig_functions() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 0.0);
+        env.insert('B', std::f32::consts::PI / 2.0);
+
+        assert!((eval_expr(&parse_expression("sin(A)").unwrap(), &env) - 0.0).abs() < 0.001);
+        assert!((eval_expr(&parse_expression("cos(A)").unwrap(), &env) - 1.0).abs() < 0.001);
+        assert!((eval_expr(&parse_expression("sin(B)").unwrap(), &env) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_atan2() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 1.0);
+        env.insert('B', 1.0);
+
+        let result = eval_expr(&parse_expression("atan2(A,B)").unwrap(), &env);
+        assert!((result - std::f32::consts::PI / 4.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_comparisons() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 10.0);
+        env.insert('B', 5.0);
+
+        assert_eq!(eval_expr(&parse_expression("A > B").unwrap(), &env), 1.0);
+        assert_eq!(eval_expr(&parse_expression("A < B").unwrap(), &env), 0.0);
+        assert_eq!(eval_expr(&parse_expression("A >= B").unwrap(), &env), 1.0);
+        assert_eq!(eval_expr(&parse_expression("A <= B").unwrap(), &env), 0.0);
+        assert_eq!(eval_expr(&parse_expression("A == B").unwrap(), &env), 0.0);
+        assert_eq!(eval_expr(&parse_expression("A != B").unwrap(), &env), 1.0);
+    }
+
+    #[test]
+    fn test_where_conditional() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 10.0);
+        env.insert('B', 5.0);
+
+        // where(A > B, 100, 0) = 100
+        assert_eq!(eval_expr(&parse_expression("where(A > B, 100, 0)").unwrap(), &env), 100.0);
+        // where(A < B, 100, 0) = 0
+        assert_eq!(eval_expr(&parse_expression("where(A < B, 100, 0)").unwrap(), &env), 0.0);
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let mut env: BTreeMap<char, f32> = BTreeMap::new();
+        env.insert('A', 4.0);
+        env.insert('B', 2.0);
+
+        // sqrt(A) + pow(B, 2) = 2 + 4 = 6
+        let result = eval_expr(&parse_expression("sqrt(A) + pow(B, 2)").unwrap(), &env);
+        assert!((result - 6.0).abs() < 0.001);
     }
 }

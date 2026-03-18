@@ -5,7 +5,7 @@ use crate::routes::{
     batch::batch,
     combine::{append, merge, spatial_join},
     convert::convert,
-    raster::{aspect, color_relief, contours, hillshade, raster_calc, roughness, slope},
+    raster::{aspect, color_relief, contours, hillshade, mosaic, raster_calc, raster_convert, roughness, slope},
     schema::{repair, schema, validate},
     topology::{difference, intersect, union},
     transform::{
@@ -54,4 +54,8 @@ pub fn router() -> Router {
         .route("/v1/color-relief", post(color_relief))
         .route("/v1/contours", post(contours))
         .route("/v1/raster-calc", post(raster_calc))
+        // Raster conversion
+        .route("/v1/convert/raster", post(raster_convert))
+        // Mosaic
+        .route("/v1/mosaic", post(mosaic))
 }

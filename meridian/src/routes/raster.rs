@@ -11,7 +11,7 @@ use crate::{
     AppState,
 };
 use crate::gis::raster::{
-    run_color_relief, run_contours, run_gdaldem_single, run_raster_calc, RasterInput,
+    run_color_relief, run_contours, run_gdaldem_single, run_mosaic, run_raster_calc, run_raster_convert, RasterInput,
 };
 use crate::gis::reproject::payment_gate;
 
@@ -352,6 +352,205 @@ fn validate_expression_inputs(
     }
 
     Ok(())
+}
+
+#[derive(ToSchema)]
+#[allow(dead_code)]
+pub struct RasterConvertParams {
+    pub file: String,
+    pub output_format: String,
+}
+
+#[derive(ToSchema)]
+#[allow(dead_code)]
+pub struct MosaicParams {
+    pub file_1: String,
+    pub file_2: String,
+    pub output_crs: Option<String>,
+    pub resolution: Option<f64>,
+    pub resampling: Option<String>,
+    pub nodata: Option<f64>,
+}
+
+/// Parse mosaic field name like "file_1" and return the numeric index.
+/// Only accepts file_1 through file_10 (no leading zeros, no file_0).
+fn parse_mosaic_field_index(name: &str) -> Option<usize> {
+    let suffix = name.strip_prefix("file_")?;
+    // Reject leading zeros and zero index
+    if suffix.starts_with('0') {
+        return None;
+    }
+    let n: usize = suffix.parse().ok()?;
+    if n >= 1 && n <= 10 {
+        Some(n)
+    } else {
+        None
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/convert/raster",
+    tag = "GIS",
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form: `file` raster upload, `output_format` (GTiff, PNG, JPEG, AAIGrid)",
+        content = RasterConvertParams
+    ),
+    responses(
+        (status = 200, description = "Converted raster output", body = GeoJsonOutput),
+        (status = 400, description = "Bad request"),
+        (status = 402, description = "Payment required", body = crate::billing::PaymentRequired),
+        (status = 413, description = "Payload too large (>200 MB)"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn raster_convert(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut file_input: Option<RasterInput> = None;
+    let mut output_format: Option<String> = None;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => file_input = Some(RasterInput::from_multipart_field(&mut field).await?),
+            Some("output_format") => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("output_format: {e}")))?;
+                if !v.trim().is_empty() {
+                    output_format = Some(v.trim().to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let input = file_input.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
+    let output_format = output_format.ok_or_else(|| AppError::BadRequest("Missing 'output_format' field".into()))?;
+
+    let price = compute_price(input.size);
+    let t0 = Instant::now();
+    metrics::record_request("raster-convert", "received");
+    payment_gate("raster-convert", input.size, price, &request_id, &headers, &state).await?;
+    let out = run_raster_convert(&input, &output_format).await?;
+    metrics::record_request("raster-convert", "ok");
+    metrics::record_request_duration("raster-convert", t0.elapsed().as_secs_f64());
+
+    Ok(Json(GeoJsonOutput {
+        request_id,
+        price_usd: price,
+        result: out.as_json_value(),
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/mosaic",
+    tag = "GIS",
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form: file_1 through file_N (2-10 rasters), optional output_crs, resolution, resampling (nearest/bilinear/cubic), nodata",
+        content = MosaicParams
+    ),
+    responses(
+        (status = 200, description = "Mosaicked GeoTIFF output", body = GeoJsonOutput),
+        (status = 400, description = "Bad request"),
+        (status = 402, description = "Payment required", body = crate::billing::PaymentRequired),
+        (status = 413, description = "Payload too large (>200 MB)"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn mosaic(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut inputs: Vec<(usize, RasterInput)> = Vec::new();
+    let mut output_crs: Option<String> = None;
+    let mut resolution: Option<f64> = None;
+    let mut resampling: String = "nearest".to_string();
+    let mut nodata: Option<f64> = None;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some(name) if name.starts_with("file_") => {
+                if let Some(idx) = parse_mosaic_field_index(name) {
+                    inputs.push((idx, RasterInput::from_multipart_field(&mut field).await?));
+                } else if name == "file_0" {
+                    return Err(AppError::BadRequest(
+                        "Invalid field name 'file_0'. Use file_1, file_2, ... file_10".into(),
+                    ));
+                }
+                // Silently ignore other invalid file_* names
+            }
+            Some("output_crs") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("output_crs: {e}")))?;
+                if !v.trim().is_empty() {
+                    output_crs = Some(v.trim().to_string());
+                }
+            }
+            Some("resolution") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("resolution: {e}")))?;
+                if !v.trim().is_empty() {
+                    resolution = Some(v.trim().parse::<f64>().map_err(|_| {
+                        AppError::BadRequest("resolution must be a positive number".into())
+                    })?);
+                }
+            }
+            Some("resampling") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("resampling: {e}")))?;
+                if !v.trim().is_empty() {
+                    resampling = v.trim().to_string();
+                }
+            }
+            Some("nodata") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("nodata: {e}")))?;
+                if !v.trim().is_empty() {
+                    nodata = Some(v.trim().parse::<f64>().map_err(|_| {
+                        AppError::BadRequest("nodata must be a number".into())
+                    })?);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if inputs.len() < 2 {
+        return Err(AppError::BadRequest("Mosaic requires at least 2 input rasters (file_1, file_2, ...)".into()));
+    }
+
+    // Sort by numeric suffix so order of arrival doesn't matter
+    inputs.sort_by_key(|(idx, _)| *idx);
+    let inputs: Vec<RasterInput> = inputs.into_iter().map(|(_, r)| r).collect();
+
+    let total_size: usize = inputs.iter().map(|r| r.size).sum();
+    let price = compute_price(total_size);
+    let t0 = Instant::now();
+    metrics::record_request("mosaic", "received");
+    payment_gate("mosaic", total_size, price, &request_id, &headers, &state).await?;
+    let out = run_mosaic(&inputs, output_crs.as_deref(), resolution, &resampling, nodata).await?;
+    metrics::record_request("mosaic", "ok");
+    metrics::record_request_duration("mosaic", t0.elapsed().as_secs_f64());
+
+    Ok(Json(GeoJsonOutput {
+        request_id,
+        price_usd: price,
+        result: out.as_json_value(),
+    }))
 }
 
 #[cfg(test)]

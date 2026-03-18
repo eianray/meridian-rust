@@ -55,6 +55,7 @@ use gis::{
         gis::clip::clip,
         gis::dissolve::dissolve,
         routes::batch::batch,
+        routes::convert::convert,
         routes::raster::hillshade,
         routes::raster::slope,
         routes::raster::aspect,
@@ -62,6 +63,8 @@ use gis::{
         routes::raster::color_relief,
         routes::raster::contours,
         routes::raster::raster_calc,
+        routes::raster::raster_convert,
+        routes::raster::mosaic,
     ),
     components(
         schemas(
@@ -75,10 +78,13 @@ use gis::{
             BufferParams,
             ClipParams,
             DissolveParams,
+            routes::convert::ConvertParams,
             routes::raster::SingleRasterParams,
             routes::raster::ColorReliefParams,
             routes::raster::ContoursParams,
             routes::raster::RasterCalcParams,
+            routes::raster::RasterConvertParams,
+            routes::raster::MosaicParams,
             RasterBinaryResult,
             RasterOpStats,
         )
