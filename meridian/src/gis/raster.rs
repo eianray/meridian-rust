@@ -737,10 +737,10 @@ fn run_raster_convert_sync(
     };
 
     let out_ds = unsafe {
-        let options_ptr: *mut *mut i8 = if let Some(ref opts) = copy_options {
-            let mut ptrs: Vec<*mut i8> = opts
+        let options_ptr: *mut *mut std::os::raw::c_char = if let Some(ref opts) = copy_options {
+            let mut ptrs: Vec<*mut std::os::raw::c_char> = opts
                 .iter()
-                .map(|s| s.as_ptr() as *mut i8)
+                .map(|s| s.as_ptr() as *mut std::os::raw::c_char)
                 .collect();
             ptrs.push(std::ptr::null_mut());
             ptrs.as_mut_ptr()
