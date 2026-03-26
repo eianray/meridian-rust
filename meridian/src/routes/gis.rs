@@ -5,7 +5,9 @@ use crate::routes::{
     batch::batch,
     combine::{append, merge, spatial_join},
     convert::convert,
+    package::package_gdb,
     raster::{aspect, color_relief, contours, hillshade, mosaic, raster_calc, raster_convert, raster_to_vector, roughness, slope},
+    reclassify::reclassify,
     schema::{repair, schema, validate},
     topology::{difference, intersect, union},
     transform::{
@@ -60,4 +62,8 @@ pub fn router() -> Router {
         .route("/v1/mosaic", post(mosaic))
         // Raster-to-vector polygonization
         .route("/v1/raster-to-vector", post(raster_to_vector))
+        // Reclassify
+        .route("/v1/reclassify", post(reclassify))
+        // Package GDB
+        .route("/v1/package/gdb", post(package_gdb))
 }

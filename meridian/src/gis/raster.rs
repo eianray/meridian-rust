@@ -5,6 +5,7 @@ use gdal::{Dataset, DriverManager};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::f32::NAN;
+use std::os::raw::c_char;
 use std::time::Duration;
 use tempfile::TempDir;
 use utoipa::ToSchema;
@@ -265,6 +266,90 @@ fn run_gdaldem_single_sync(
         bytes: out_bytes,
         filename: format!("{}.{}", mode, output_ext),
         mime_type: mime_type.to_string(),
+    })
+}
+
+/// Run slope with the -p (percent) flag using GDALDEMProcessing + GDALDEMProcessingOptionsNew
+pub async fn run_gdaldem_slope_pct(input: &RasterInput) -> Result<RasterCommandOutput, AppError> {
+    let bytes = input.bytes.clone();
+    let input_size = input.size;
+
+    tokio::task::spawn_blocking(move || {
+        run_gdaldem_slope_pct_sync(&bytes, input_size)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Task join error: {}", e)))?
+}
+
+fn run_gdaldem_slope_pct_sync(input_bytes: &[u8], input_size: usize) -> Result<RasterCommandOutput, AppError> {
+    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+
+    // Write input to temp file
+    let in_path = tmp.path().join("input.tif");
+    std::fs::write(&in_path, input_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input: {e}")))?;
+
+    // Open input dataset
+    let in_ds = Dataset::open(&in_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Open input: {e}")))?;
+
+    let out_path = tmp.path().join("slope_pct.tif");
+
+    // Build options: ["-p", nullptr]
+    let opt_p = "-p\0".as_ptr() as *mut c_char;
+    let opt_null: *mut c_char = std::ptr::null_mut();
+    let options: [*mut c_char; 2] = [opt_p, opt_null];
+
+    let opts = unsafe {
+        gdal_sys::GDALDEMProcessingOptionsNew(options.as_ptr() as *mut *mut c_char, std::ptr::null_mut())
+    };
+    if opts.is_null() {
+        return Err(AppError::Internal(anyhow::anyhow!("GDALDEMProcessingOptionsNew returned null")));
+    }
+
+    let mut usage_error: i32 = 0;
+    let out_ds = unsafe {
+        gdal_sys::GDALDEMProcessing(
+            out_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
+            in_ds.c_dataset(),
+            b"slope\0".as_ptr() as *const std::os::raw::c_char,
+            std::ptr::null(), // color filename
+            opts,
+            &mut usage_error,
+        )
+    };
+
+    unsafe { gdal_sys::GDALDEMProcessingOptionsFree(opts) };
+
+    if out_ds.is_null() {
+        return Err(AppError::BadRequest(format!(
+            "GDALDEMProcessing slope (percent) failed. Usage error: {}",
+            usage_error
+        )));
+    }
+
+    // Close output dataset to flush to disk
+    unsafe { gdal_sys::GDALClose(out_ds) };
+
+    if !out_path.exists() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "GDALDEMProcessing slope completed but output not created"
+        )));
+    }
+
+    let out_bytes = std::fs::read(&out_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read output: {e}")))?;
+
+    Ok(RasterCommandOutput {
+        stats: RasterOpStats {
+            tool: "slope".to_string(),
+            input_count: 1,
+            input_size_bytes: input_size,
+            output_size_bytes: out_bytes.len(),
+        },
+        bytes: out_bytes,
+        filename: "slope_pct.tif".into(),
+        mime_type: "image/tiff".to_string(),
     })
 }
 

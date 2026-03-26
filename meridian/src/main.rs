@@ -28,6 +28,8 @@ use routes::batch::{BatchOperation, BatchResponse, BatchResult};
 use middleware::rate_limit::{mcp_rate_limit_middleware, rate_limit_middleware, IpRateLimiters};
 use middleware::request_id::request_id_middleware;
 use routes::health::{health, HealthResponse};
+use routes::package::PackageGdbParams;
+use routes::reclassify::ReclassifyParams;
 use gis::{
     buffer::BufferParams,
     clip::ClipParams,
@@ -65,6 +67,8 @@ use gis::{
         routes::raster::raster_calc,
         routes::raster::raster_convert,
         routes::raster::mosaic,
+        routes::reclassify::reclassify,
+        routes::package::package_gdb,
     ),
     components(
         schemas(
@@ -87,6 +91,8 @@ use gis::{
             routes::raster::MosaicParams,
             RasterBinaryResult,
             RasterOpStats,
+            ReclassifyParams,
+            PackageGdbParams,
         )
     ),
     tags(

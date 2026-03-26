@@ -11,7 +11,8 @@ use crate::{
     AppState,
 };
 use crate::gis::raster::{
-    run_color_relief, run_contours, run_gdaldem_single, run_mosaic, run_raster_calc, run_raster_convert, run_raster_to_vector, RasterInput,
+    run_color_relief, run_contours, run_gdaldem_single, run_gdaldem_slope_pct,
+    run_mosaic, run_raster_calc, run_raster_convert, run_raster_to_vector, RasterInput,
 };
 use crate::gis::reproject::payment_gate;
 
@@ -102,9 +103,78 @@ macro_rules! single_raster_endpoint {
 }
 
 single_raster_endpoint!(hillshade, "hillshade", "/v1/hillshade", "Hillshade raster output");
-single_raster_endpoint!(slope, "slope", "/v1/slope", "Slope raster output");
 single_raster_endpoint!(aspect, "aspect", "/v1/aspect", "Aspect raster output");
 single_raster_endpoint!(roughness, "roughness", "/v1/roughness", "Roughness raster output");
+
+/// Slope endpoint with optional `percent` flag.
+/// If `percent = "true"`, slope is returned as percent instead of degrees.
+#[utoipa::path(
+    post,
+    path = "/v1/slope",
+    tag = "GIS",
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form: `file` raster upload, optional `percent` (\"true\" for percent output)",
+        content = SingleRasterParams
+    ),
+    responses(
+        (status = 200, description = "Slope raster output", body = GeoJsonOutput),
+        (status = 400, description = "Bad request"),
+        (status = 402, description = "Payment required", body = crate::billing::PaymentRequired),
+        (status = 413, description = "Payload too large (>200 MB)"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn slope(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut file_input: Option<RasterInput> = None;
+    let mut percent_flag = false;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => {
+                file_input = Some(RasterInput::from_multipart_field(&mut field).await?);
+            }
+            Some("percent") => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("percent: {e}")))?;
+                percent_flag = v.trim().eq_ignore_ascii_case("true");
+            }
+            _ => {}
+        }
+    }
+
+    let input = file_input.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
+    let price = compute_price(input.size);
+    let t0 = Instant::now();
+    metrics::record_request("slope", "received");
+    payment_gate("slope", input.size, price, &request_id, &headers, &state).await?;
+
+    let out = if percent_flag {
+        run_gdaldem_slope_pct(&input).await?
+    } else {
+        run_gdaldem_single("slope", &input, &[], "tif", "image/tiff").await?
+    };
+
+    metrics::record_request("slope", "ok");
+    metrics::record_request_duration("slope", t0.elapsed().as_secs_f64());
+
+    Ok(Json(GeoJsonOutput {
+        request_id,
+        price_usd: price,
+        result: out.as_json_value(),
+    }))
+}
 
 #[utoipa::path(
     post,
