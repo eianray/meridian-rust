@@ -262,20 +262,21 @@ fn walk_dir(
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Strip prefix: {e}")))?;
 
         if path.is_file() {
-            zip.start_file(name.to_string_lossy(), *options)
+            zip.start_file(name.to_string_lossy().into_owned(), *options)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("Start file: {e}")))?;
             let mut f = fs::File::open(&path)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("Open file: {e}")))?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("Read file: {e}")))?;
-            zip.write(&buf)
+            use std::io::Write;
+            zip.write_all(&buf)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("Write file: {e}")))?;
         } else if path.is_dir() {
             // Add directory entry
-            let dir_name = name.to_string_lossy();
+            let dir_name = name.to_string_lossy().into_owned();
             if !dir_name.is_empty() {
-                zip.add_directory(&dir_name, *options)
+                zip.add_directory(dir_name, *options)
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("Add dir: {e}")))?;
                 walk_dir(base, &path, zip, options)?;
             }
