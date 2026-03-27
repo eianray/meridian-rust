@@ -184,6 +184,24 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)]) -> Result<Vec<u8>, AppError> {
         // -nln <name>: rename layer to requested name
         // For first layer: create the GDB directory
         // For subsequent layers: append to existing GDB
+        // Step 1: Explode any GeometryCollections → flat GeoJSON
+        // OpenFileGDB rejects GeometryCollection — must be Polygon/MultiPolygon/LineString etc.
+        let exploded_path = tmp.path().join(format!("layer_{}_exploded.geojson", layer_idx));
+        let explode_output = Command::new("ogr2ogr")
+            .args(["-f", "GeoJSON", "-explodecollections"])
+            .arg(&exploded_path)
+            .arg(&geojson_path)
+            .output()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("ogr2ogr explode failed: {}", e)))?;
+
+        if !explode_output.status.success() {
+            let stderr = String::from_utf8_lossy(&explode_output.stderr);
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "ogr2ogr explode failed for layer '{}': {}", layer_name, stderr
+            )));
+        }
+
+        // Step 2: Write exploded GeoJSON → OpenFileGDB
         let mut cmd = Command::new("ogr2ogr");
         cmd.arg("-f").arg("OpenFileGDB");
 
@@ -191,8 +209,6 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)]) -> Result<Vec<u8>, AppError> {
             cmd.arg("-overwrite");
         }
         cmd.arg("-nln").arg(layer_name);
-        // Promote mixed/multi geometries to MULTIPOLYGON or MULTILINESTRING
-        // so OpenFileGDB accepts them — it requires a single consistent geometry type.
         cmd.arg("-nlt").arg("PROMOTE_TO_MULTI");
 
         if layer_idx > 0 {
@@ -200,7 +216,7 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)]) -> Result<Vec<u8>, AppError> {
         }
 
         cmd.arg(&gdb_dir);
-        cmd.arg(&geojson_path);
+        cmd.arg(&exploded_path);
 
         let output = cmd.output()
             .map_err(|e| AppError::Internal(anyhow::anyhow!("ogr2ogr failed: {}", e)))?;
