@@ -208,38 +208,48 @@ fn do_dissolve(
         }
 
         // Build a MultiPolygon then use OGR_G_UnionCascaded for efficient
-        // spatial-tree union — OGR_G_UnionCascaded requires MultiPolygon (not GeometryCollection).
-        let mut multi = Geometry::empty(gdal_sys::OGRwkbGeometryType::wkbMultiPolygon)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Create MultiPolygon: {e}")))?;
+        // spatial-tree union — OGR_G_UnionCascaded requires MultiPolygon.
+        // We use OGR C API directly to clone each sub-geometry into the collection
+        // to avoid gdal-rs ownership tracking issues.
+        let multi_raw = unsafe {
+            gdal_sys::OGR_G_CreateGeometry(gdal_sys::OGRwkbGeometryType::wkbMultiPolygon)
+        };
+        if multi_raw.is_null() {
+            return Err(AppError::Internal(anyhow::anyhow!("Failed to create MultiPolygon")));
+        }
 
         for gv in &geom_vals {
             let mut geom = Geometry::from_geojson(&gv.to_string())
                 .map_err(|e| AppError::BadRequest(format!("Invalid geometry: {e}")))?;
             normalize_geom_to_wgs84(&mut geom, &source_crs)?;
-            // Flatten any MultiPolygon inputs into individual Polygons
+
             let geom_type = unsafe { gdal_sys::OGR_G_GetGeometryType(geom.c_geometry()) };
-            if geom_type == gdal_sys::OGRwkbGeometryType::wkbMultiPolygon {
+            if geom_type == gdal_sys::OGRwkbGeometryType::wkbMultiPolygon
+                || geom_type == gdal_sys::OGRwkbGeometryType::wkbMultiPolygon25D
+            {
+                // Flatten sub-polygons
                 let count = unsafe { gdal_sys::OGR_G_GetGeometryCount(geom.c_geometry()) };
                 for i in 0..count {
-                    let sub_raw = unsafe { gdal_sys::OGR_G_GetGeometryRef(geom.c_geometry(), i) };
-                    if !sub_raw.is_null() {
-                        let cloned = unsafe { gdal_sys::OGR_G_Clone(sub_raw) };
+                    let sub = unsafe { gdal_sys::OGR_G_GetGeometryRef(geom.c_geometry(), i) };
+                    if !sub.is_null() {
+                        let cloned = unsafe { gdal_sys::OGR_G_Clone(sub) };
                         if !cloned.is_null() {
-                            let sub = unsafe { Geometry::lazy_feature_geometry() };
-                            unsafe { sub.set_c_geometry(cloned) };
-                            multi.add_geometry(sub)
-                                .map_err(|e| AppError::Internal(anyhow::anyhow!("Add sub-polygon: {e}")))?;
+                            unsafe { gdal_sys::OGR_G_AddGeometryDirectly(multi_raw, cloned) };
                         }
                     }
                 }
             } else {
-                multi.add_geometry(geom)
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Add polygon: {e}")))?;
+                // Single polygon — clone and add directly
+                let cloned = unsafe { gdal_sys::OGR_G_Clone(geom.c_geometry()) };
+                if !cloned.is_null() {
+                    unsafe { gdal_sys::OGR_G_AddGeometryDirectly(multi_raw, cloned) };
+                }
             }
         }
 
         // Call OGR_G_UnionCascaded — returns a new geometry (caller owns it)
-        let unioned_raw = unsafe { gdal_sys::OGR_G_UnionCascaded(multi.c_geometry()) };
+        let unioned_raw = unsafe { gdal_sys::OGR_G_UnionCascaded(multi_raw) };
+        unsafe { gdal_sys::OGR_G_DestroyGeometry(multi_raw) };
         if unioned_raw.is_null() {
             return Err(AppError::BadRequest(
                 "UnionCascaded failed — GEOS is required for dissolve operations".into(),
