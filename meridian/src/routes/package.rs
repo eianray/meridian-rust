@@ -188,14 +188,14 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)]) -> Result<Vec<u8>, AppError> {
         cmd.arg("-f").arg("OpenFileGDB");
 
         if layer_idx == 0 {
-            // First layer: overwrite (create fresh GDB)
             cmd.arg("-overwrite");
         }
-        // -nln to rename the output layer to the requested layer name
         cmd.arg("-nln").arg(layer_name);
+        // Promote mixed/multi geometries to MULTIPOLYGON or MULTILINESTRING
+        // so OpenFileGDB accepts them — it requires a single consistent geometry type.
+        cmd.arg("-nlt").arg("PROMOTE_TO_MULTI");
 
         if layer_idx > 0 {
-            // Append mode: tell ogr2ogr to update existing GDB
             cmd.arg("-append");
         }
 
