@@ -274,8 +274,10 @@ pub async fn calculate_geometry(
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<GeoJsonOutput>, AppError> {
     let mut file_input: Option<GeoJsonInput> = None;
-    let mut field_name = "area".to_string();
-    let mut units = "acres".to_string();
+    let mut property   = "area".to_string();
+    let mut field_name: Option<String> = None;
+    let mut area_unit   = "sqm".to_string();
+    let mut length_unit = "m".to_string();
 
     while let Some(mut field) = multipart.next_field().await
         .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
@@ -284,17 +286,33 @@ pub async fn calculate_geometry(
             Some("file") => {
                 file_input = Some(GeoJsonInput::from_multipart_field(&mut field).await?);
             }
+            Some("property") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("property: {e}")))?;
+                if !v.trim().is_empty() { property = v.trim().to_string(); }
+            }
             Some("field_name") => {
                 let v = field.text().await.map_err(|e| AppError::BadRequest(format!("field_name: {e}")))?;
-                if !v.trim().is_empty() { field_name = v.trim().to_string(); }
+                if !v.trim().is_empty() { field_name = Some(v.trim().to_string()); }
             }
+            Some("area_unit") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("area_unit: {e}")))?;
+                if !v.trim().is_empty() { area_unit = v.trim().to_string(); }
+            }
+            Some("length_unit") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("length_unit: {e}")))?;
+                if !v.trim().is_empty() { length_unit = v.trim().to_string(); }
+            }
+            // Legacy compat: accept 'units' as area_unit alias
             Some("units") => {
                 let v = field.text().await.map_err(|e| AppError::BadRequest(format!("units: {e}")))?;
-                if !v.trim().is_empty() { units = v.trim().to_string(); }
+                if !v.trim().is_empty() { area_unit = v.trim().to_string(); }
             }
             _ => {}
         }
     }
+
+    // Default field_name to property name if not provided
+    let fname = field_name.unwrap_or_else(|| property.clone());
 
     let input = file_input.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
     let geojson_str = validate_geojson_bytes(&input.bytes)?;
@@ -305,7 +323,7 @@ pub async fn calculate_geometry(
     let _permit = GDAL_SEMAPHORE.acquire().await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Semaphore: {e}")))?;
     let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
-        crate::gis::transform::do_calculate_geometry(geojson_str, field_name, units)
+        crate::gis::transform::do_calculate_geometry(geojson_str, property, fname, area_unit, length_unit)
     })).await
         .map_err(|_| AppError::BadRequest("Timed out".into()))?
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?

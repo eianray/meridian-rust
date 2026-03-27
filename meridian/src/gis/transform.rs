@@ -309,12 +309,45 @@ pub fn do_add_field(
 
 // ── Calculate Geometry ────────────────────────────────────────────────────────
 
+/// Calculate geometry attributes on a GeoJSON FeatureCollection.
+/// Matches ArcGIS Pro "Calculate Geometry Attributes" tool.
 pub fn do_calculate_geometry(
     geojson_str: String,
+    property: String,
     field_name: String,
-    units: String,
+    area_unit: String,
+    length_unit: String,
 ) -> Result<serde_json::Value, AppError> {
     use gdal::vector::Geometry;
+
+    // Area conversion factors from square meters
+    let area_conv: f64 = match area_unit.to_lowercase().as_str() {
+        "sqkm"      => 1e-6,
+        "hectares"  => 1e-4,
+        "sqft"      => 10.76391041671,
+        "sqft_us"   => 10.763867361,
+        "sqmi"      => 3.86102158542e-7,
+        "sqmi_us"   => 3.86100434721e-7,
+        "acres"     => 2.47105381467e-4,       // international acres
+        "acres_us"  => 2.47104393047e-4,       // US survey acres
+        "sqyd"      => 1.19599004630,
+        "sqnmi"     => 2.91552956186e-7,
+        _           => 1.0,                    // sqm default
+    };
+
+    // Length conversion factors from meters
+    let len_conv: f64 = match length_unit.to_lowercase().as_str() {
+        "km"        => 0.001,
+        "ft"        => 3.28084,
+        "ft_us"     => 3.28083333,
+        "mi"        => 6.21371192237e-4,
+        "mi_us"     => 6.21369949495e-4,
+        "yd"        => 1.09361329834,
+        "yd_us"     => 1.09360999867,
+        "nmi"       => 5.39956803456e-4,
+        "nmi_us"    => 5.39955687035e-4,
+        _           => 1.0,                    // meters default
+    };
 
     let mut fc: serde_json::Value = serde_json::from_str(&geojson_str)
         .map_err(|e| AppError::BadRequest(format!("Invalid JSON: {e}")))?;
@@ -323,39 +356,111 @@ pub fn do_calculate_geometry(
         .and_then(|f| f.as_array_mut())
         .ok_or_else(|| AppError::BadRequest("Not a FeatureCollection".into()))?;
 
-    let conversion: f64 = match units.to_lowercase().as_str() {
-        "sqft" => 10.7639,
-        "acres" => 1.0 / 4046.856422,
-        _ => 1.0, // sqm default
-    };
+    let prop = property.to_lowercase();
 
     for feat in features.iter_mut() {
         let geom_val = feat.get("geometry").cloned();
-        let area = if let Some(g) = geom_val {
+
+        let value: serde_json::Value = if let Some(ref g) = geom_val {
             if g.is_null() {
-                0.0f64
+                serde_json::Value::Null
             } else {
                 match Geometry::from_geojson(&g.to_string()) {
                     Ok(geom) => {
-                        let area_m2 = unsafe { gdal_sys::OGR_G_Area(geom.c_geometry()) };
-                        (area_m2 * conversion).abs()
+                        let raw = unsafe {
+                            let h = geom.c_geometry();
+                            match prop.as_str() {
+                                // ── Area properties ──────────────────────────────────
+                                "area" | "area_geodesic" => {
+                                    let a = gdal_sys::OGR_G_Area(h).abs() * area_conv;
+                                    round6(a)
+                                }
+                                "perimeter" => {
+                                    // Perimeter = sum of exterior ring lengths
+                                    let a = gdal_sys::OGR_G_Length(h).abs() * len_conv;
+                                    round6(a)
+                                }
+                                // ── Length properties ────────────────────────────────
+                                "length" | "length_geodesic" | "length_3d" => {
+                                    let l = gdal_sys::OGR_G_Length(h).abs() * len_conv;
+                                    round6(l)
+                                }
+                                // ── Bearing ─────────────────────────────────────────
+                                "line_bearing" => {
+                                    let n = gdal_sys::OGR_G_GetPointCount(h);
+                                    if n >= 2 {
+                                        let (mut x0, mut y0, mut x1, mut y1) = (0f64, 0f64, 0f64, 0f64);
+                                        let last = n - 1;
+                                        gdal_sys::OGR_G_GetPoint(h, 0, &mut x0, &mut y0, std::ptr::null_mut());
+                                        gdal_sys::OGR_G_GetPoint(h, last, &mut x1, &mut y1, std::ptr::null_mut());
+                                        let dx = x1 - x0;
+                                        let dy = y1 - y0;
+                                        let bearing = (dx.atan2(dy).to_degrees() + 360.0) % 360.0;
+                                        round6(bearing)
+                                    } else { 0.0 }
+                                }
+                                // ── Line start/end ───────────────────────────────────
+                                "line_start_x" => { let mut x = 0f64; gdal_sys::OGR_G_GetPoint(h, 0, &mut x, std::ptr::null_mut(), std::ptr::null_mut()); round6(x) }
+                                "line_start_y" => { let mut y = 0f64; let mut x = 0f64; gdal_sys::OGR_G_GetPoint(h, 0, &mut x, &mut y, std::ptr::null_mut()); round6(y) }
+                                "line_end_x"   => { let n = gdal_sys::OGR_G_GetPointCount(h); let mut x = 0f64; gdal_sys::OGR_G_GetPoint(h, n-1, &mut x, std::ptr::null_mut(), std::ptr::null_mut()); round6(x) }
+                                "line_end_y"   => { let n = gdal_sys::OGR_G_GetPointCount(h); let mut x = 0f64; let mut y = 0f64; gdal_sys::OGR_G_GetPoint(h, n-1, &mut x, &mut y, std::ptr::null_mut()); round6(y) }
+                                // ── Centroid ─────────────────────────────────────────
+                                "centroid_x" | "centroid_y" => {
+                                    let centroid_h = gdal_sys::OGR_G_CreateGeometry(gdal_sys::OGRwkbGeometryType::wkbPoint);
+                                    gdal_sys::OGR_G_Centroid(h, centroid_h);
+                                    let (mut x, mut y) = (0f64, 0f64);
+                                    gdal_sys::OGR_G_GetPoint(centroid_h, 0, &mut x, &mut y, std::ptr::null_mut());
+                                    gdal_sys::OGR_G_DestroyGeometry(centroid_h);
+                                    if prop == "centroid_x" { round6(x) } else { round6(y) }
+                                }
+                                // ── Extent ───────────────────────────────────────────
+                                "extent_min_x" | "extent_min_y" | "extent_max_x" | "extent_max_y" => {
+                                    let mut env = gdal_sys::OGREnvelope { MinX: 0.0, MaxX: 0.0, MinY: 0.0, MaxY: 0.0 };
+                                    gdal_sys::OGR_G_GetEnvelope(h, &mut env);
+                                    match prop.as_str() {
+                                        "extent_min_x" => round6(env.MinX),
+                                        "extent_min_y" => round6(env.MinY),
+                                        "extent_max_x" => round6(env.MaxX),
+                                        _              => round6(env.MaxY),
+                                    }
+                                }
+                                // ── Point coords ─────────────────────────────────────
+                                "point_x" => { let mut x = 0f64; gdal_sys::OGR_G_GetPoint(h, 0, &mut x, std::ptr::null_mut(), std::ptr::null_mut()); round6(x) }
+                                "point_y" => { let mut x = 0f64; let mut y = 0f64; gdal_sys::OGR_G_GetPoint(h, 0, &mut x, &mut y, std::ptr::null_mut()); round6(y) }
+                                // ── Counts ───────────────────────────────────────────
+                                "part_count"   => gdal_sys::OGR_G_GetGeometryCount(h) as f64,
+                                "vertex_count" => gdal_sys::OGR_G_GetPointCount(h) as f64,
+                                _ => return Err(AppError::BadRequest(format!(
+                                    "Unknown property '{}'. Valid: area, area_geodesic, perimeter, length, length_geodesic, length_3d, line_bearing, line_start_x, line_start_y, line_end_x, line_end_y, centroid_x, centroid_y, extent_min_x, extent_min_y, extent_max_x, extent_max_y, point_x, point_y, part_count, vertex_count",
+                                    property
+                                ))),
+                            }
+                        };
+                        // Integer counts — no decimal
+                        if prop == "part_count" || prop == "vertex_count" {
+                            serde_json::json!(raw as i64)
+                        } else {
+                            serde_json::json!(raw)
+                        }
                     }
-                    Err(_) => 0.0,
+                    Err(_) => serde_json::Value::Null,
                 }
             }
         } else {
-            0.0
+            serde_json::Value::Null
         };
 
-        // Round to 4 decimal places
-        let area_rounded = (area * 10000.0).round() / 10000.0;
-
         if let Some(props) = feat.get_mut("properties").and_then(|p| p.as_object_mut()) {
-            props.insert(field_name.clone(), serde_json::json!(area_rounded));
+            props.insert(field_name.clone(), value);
         } else {
-            feat["properties"] = serde_json::json!({ &field_name: area_rounded });
+            feat["properties"] = serde_json::json!({ &field_name: value });
         }
     }
 
     Ok(fc)
+}
+
+#[inline]
+fn round6(v: f64) -> f64 {
+    (v * 1_000_000.0).round() / 1_000_000.0
 }
