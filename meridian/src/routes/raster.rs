@@ -739,3 +739,127 @@ mod tests {
         }
     }
 }
+
+// ── Raster Warp (reproject) ──────────────────────────────────────────────────
+
+#[derive(serde::Deserialize, ToSchema)]
+#[allow(dead_code)]
+pub struct RasterWarpParams {
+    /// Input raster GeoTIFF
+    pub file: String,
+    /// Target CRS (e.g. "EPSG:3338")
+    pub target_crs: String,
+}
+
+/// Reproject a raster GeoTIFF to a target CRS using gdalwarp.
+#[utoipa::path(
+    post,
+    path = "/v1/raster-warp",
+    tag = "GIS",
+    request_body(
+        content_type = "multipart/form-data",
+        description = "Multipart form: `file` (GeoTIFF), `target_crs` (e.g. \"EPSG:3338\")",
+        content = RasterWarpParams
+    ),
+    responses(
+        (status = 200, description = "Warped GeoTIFF", body = GeoJsonOutput),
+        (status = 400, description = "Bad request"),
+        (status = 402, description = "Payment required", body = crate::billing::PaymentRequired),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn raster_warp(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut file_input: Option<RasterInput> = None;
+    let mut target_crs: Option<String> = None;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => {
+                file_input = Some(RasterInput::from_multipart_field(&mut field).await?);
+            }
+            Some("target_crs") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("target_crs: {e}")))?;
+                if !v.trim().is_empty() { target_crs = Some(v.trim().to_string()); }
+            }
+            _ => {}
+        }
+    }
+
+    let input = file_input.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
+    let crs = target_crs.ok_or_else(|| AppError::BadRequest("Missing 'target_crs' field".into()))?;
+
+    let price = crate::gis::compute_price(input.size);
+    let t0 = Instant::now();
+    metrics::record_request("raster-warp", "received");
+    payment_gate("raster-warp", input.size, price, &request_id, &headers, &state).await?;
+
+    let bytes = input.bytes.clone();
+    let out = tokio::task::spawn_blocking(move || run_raster_warp_sync(&bytes, &crs))
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
+        .map_err(|e| e)?;
+
+    metrics::record_request("raster-warp", "ok");
+    metrics::record_request_duration("raster-warp", t0.elapsed().as_secs_f64());
+
+    Ok(Json(GeoJsonOutput {
+        request_id,
+        price_usd: price,
+        result: out.as_json_value(),
+    }))
+}
+
+fn run_raster_warp_sync(input_bytes: &[u8], target_crs: &str) -> Result<crate::gis::raster::RasterCommandOutput, AppError> {
+    use tempfile::TempDir;
+    use std::process::Command;
+
+    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+    let in_path  = tmp.path().join("input.tif");
+    let out_path = tmp.path().join("warped.tif");
+
+    std::fs::write(&in_path, input_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input: {e}")))?;
+
+    let status = Command::new("gdalwarp")
+        .args([
+            "-t_srs", target_crs,
+            "-r", "bilinear",
+            "-of", "GTiff",
+            in_path.to_str().unwrap(),
+            out_path.to_str().unwrap(),
+        ])
+        .status()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("gdalwarp exec: {e}")))?;
+
+    if !status.success() {
+        return Err(AppError::Internal(anyhow::anyhow!("gdalwarp failed with status: {}", status)));
+    }
+
+    if !out_path.exists() {
+        return Err(AppError::Internal(anyhow::anyhow!("gdalwarp completed but output not created")));
+    }
+
+    let out_bytes = std::fs::read(&out_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read output: {e}")))?;
+
+    Ok(crate::gis::raster::RasterCommandOutput {
+        stats: crate::gis::raster::RasterOpStats {
+            tool: "raster-warp".to_string(),
+            input_count: 1,
+            input_size_bytes: input_bytes.len(),
+            output_size_bytes: out_bytes.len(),
+        },
+        bytes: out_bytes,
+        filename: "warped.tif".into(),
+        mime_type: "image/tiff".to_string(),
+    })
+}
