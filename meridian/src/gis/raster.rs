@@ -588,6 +588,7 @@ pub async fn run_raster_calc(
     rasters: &BTreeMap<char, RasterInput>,
     expression: &str,
     output_format: Option<&str>,
+    output_type: Option<&str>,
 ) -> Result<RasterCommandOutput, AppError> {
     if rasters.is_empty() {
         return Err(AppError::BadRequest(
@@ -617,8 +618,9 @@ pub async fn run_raster_calc(
         rasters_data.insert(*letter, raster.bytes.clone());
     }
 
+    let use_int32 = output_type.map(|t| t.eq_ignore_ascii_case("int32") || t.eq_ignore_ascii_case("int")).unwrap_or(false);
     tokio::task::spawn_blocking(move || {
-        run_raster_calc_sync(&rasters_data, &expr, total_size)
+        run_raster_calc_sync(&rasters_data, &expr, total_size, use_int32)
     })
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Task join error: {}", e)))?
@@ -628,6 +630,7 @@ fn run_raster_calc_sync(
     rasters_data: &BTreeMap<char, Vec<u8>>,
     expr: &Expr,
     total_input_size: usize,
+    output_int32: bool,
 ) -> Result<RasterCommandOutput, AppError> {
     let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
 
@@ -698,37 +701,42 @@ fn run_raster_calc_sync(
     let driver = DriverManager::get_driver_by_name("GTiff")
         .map_err(|e| AppError::Internal(anyhow::anyhow!("GTiff driver: {e}")))?;
 
-    let mut out_ds = driver.create_with_band_type::<f32, _>(
-        &out_path,
-        *first_w,
-        *first_h,
-        1,  // 1 band
-    ).map_err(|e| AppError::Internal(anyhow::anyhow!("Create output: {e}")))?;
-
-    // Set geotransform and projection
-    out_ds.set_geo_transform(&geo_transform)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Set geo transform: {e}")))?;
-    out_ds.set_projection(&spatial_ref.to_wkt()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Get projection WKT: {e}")))?)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Set projection: {e}")))?;
-
-    // Write output band
-    let mut out_band = out_ds.rasterband(1)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Get output band: {e}")))?;
-
-    let mut buffer = Buffer::new(
-        (*first_w, *first_h),
-        output_data,
-    );
-
-    out_band.write::<f32>((0, 0), (*first_w, *first_h), &mut buffer)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write output: {e}")))?;
-
-    // Set nodata value for NoData
-    out_band.set_no_data_value(Some(f64::from(NAN)))
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Set nodata: {e}")))?;
-
-    drop(out_ds);
+    if output_int32 {
+        let int_data: Vec<i32> = output_data.iter().map(|&v| if v.is_nan() { i32::MIN } else { v as i32 }).collect();
+        let mut out_ds = driver.create_with_band_type::<i32, _>(
+            &out_path, *first_w, *first_h, 1,
+        ).map_err(|e| AppError::Internal(anyhow::anyhow!("Create output i32: {e}")))?;
+        out_ds.set_geo_transform(&geo_transform)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Set geo transform: {e}")))?;
+        out_ds.set_projection(&spatial_ref.to_wkt()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Get projection WKT: {e}")))?)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Set projection: {e}")))?;
+        let mut out_band = out_ds.rasterband(1)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Get output band: {e}")))?;
+        let mut buffer = Buffer::new((*first_w, *first_h), int_data);
+        out_band.write::<i32>((0, 0), (*first_w, *first_h), &mut buffer)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Write output i32: {e}")))?;
+        out_band.set_no_data_value(Some(i32::MIN as f64))
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Set nodata i32: {e}")))?;
+        drop(out_ds);
+    } else {
+        let mut out_ds = driver.create_with_band_type::<f32, _>(
+            &out_path, *first_w, *first_h, 1,
+        ).map_err(|e| AppError::Internal(anyhow::anyhow!("Create output: {e}")))?;
+        out_ds.set_geo_transform(&geo_transform)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Set geo transform: {e}")))?;
+        out_ds.set_projection(&spatial_ref.to_wkt()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Get projection WKT: {e}")))?)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Set projection: {e}")))?;
+        let mut out_band = out_ds.rasterband(1)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Get output band: {e}")))?;
+        let mut buffer = Buffer::new((*first_w, *first_h), output_data);
+        out_band.write::<f32>((0, 0), (*first_w, *first_h), &mut buffer)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Write output: {e}")))?;
+        out_band.set_no_data_value(Some(f64::from(NAN)))
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Set nodata: {e}")))?;
+        drop(out_ds);
+    }
 
     if !out_path.exists() {
         return Err(AppError::Internal(anyhow::anyhow!(

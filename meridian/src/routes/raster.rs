@@ -349,6 +349,7 @@ pub async fn raster_calc(
     let mut rasters: BTreeMap<char, RasterInput> = BTreeMap::new();
     let mut expression: Option<String> = None;
     let mut output_format: Option<String> = None;
+    let mut output_type: Option<String> = None;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -366,6 +367,12 @@ pub async fn raster_calc(
                 let v = field.text().await.map_err(|e| AppError::BadRequest(format!("output_format: {e}")))?;
                 if !v.trim().is_empty() {
                     output_format = Some(v.trim().to_string());
+                }
+            }
+            Some("output_type") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("output_type: {e}")))?;
+                if !v.trim().is_empty() {
+                    output_type = Some(v.trim().to_string());
                 }
             }
             Some(name) if is_raster_slot(name) => {
@@ -389,7 +396,7 @@ pub async fn raster_calc(
     let t0 = Instant::now();
     metrics::record_request("raster-calc", "received");
     payment_gate("raster-calc", total_size, price, &request_id, &headers, &state).await?;
-    let out = run_raster_calc(&rasters, &expression, output_format.as_deref()).await?;
+    let out = run_raster_calc(&rasters, &expression, output_format.as_deref(), output_type.as_deref()).await?;
     metrics::record_request("raster-calc", "ok");
     metrics::record_request_duration("raster-calc", t0.elapsed().as_secs_f64());
 
