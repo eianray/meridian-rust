@@ -141,6 +141,7 @@ fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>) ->
             AUTHORIZATION,
             HeaderName::from_static("x-payment"),
             HeaderName::from_static("x-request-id"),
+            HeaderName::from_static("x-mcp-key"),
         ]));
 
     // Swagger UI mounts at /docs; raw spec at /api-doc/openapi.json
