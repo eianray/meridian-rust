@@ -295,12 +295,13 @@ fn run_gdaldem_slope_pct_sync(input_bytes: &[u8], input_size: usize) -> Result<R
 
     let out_path = tmp.path().join("slope_pct.tif");
 
-    // Build options: ["-p", nullptr]
-    // -p: percent slope. Input should be in a projected CRS (e.g. EPSG:3338)
-    // so XY and Z units match — no scale factor needed.
+    // Build options: ["-p", "-compute_edges", nullptr]
+    // -p: percent slope
+    // -compute_edges: prevents edge artifacts and failures on larger rasters
     let opt_p  = "-p\0".as_ptr() as *mut c_char;
+    let opt_ce = "-compute_edges\0".as_ptr() as *mut c_char;
     let opt_null: *mut c_char = std::ptr::null_mut();
-    let options: [*mut c_char; 2] = [opt_p, opt_null];
+    let options: [*mut c_char; 3] = [opt_p, opt_ce, opt_null];
 
     let opts = unsafe {
         gdal_sys::GDALDEMProcessingOptionsNew(options.as_ptr() as *mut *mut c_char, std::ptr::null_mut())

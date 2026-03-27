@@ -163,7 +163,7 @@ pub async fn slope(
     let out = if percent_flag {
         run_gdaldem_slope_pct(&input).await?
     } else {
-        run_gdaldem_single("slope", &input, &[], "tif", "image/tiff").await?
+        run_gdaldem_single("slope", &input, &["-compute_edges".to_string()], "tif", "image/tiff").await?
     };
 
     metrics::record_request("slope", "ok");
