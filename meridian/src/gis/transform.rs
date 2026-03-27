@@ -306,3 +306,56 @@ pub fn do_add_field(
         }
     }))
 }
+
+// ── Calculate Geometry ────────────────────────────────────────────────────────
+
+pub fn do_calculate_geometry(
+    geojson_str: String,
+    field_name: String,
+    units: String,
+) -> Result<serde_json::Value, AppError> {
+    use gdal::vector::Geometry;
+
+    let mut fc: serde_json::Value = serde_json::from_str(&geojson_str)
+        .map_err(|e| AppError::BadRequest(format!("Invalid JSON: {e}")))?;
+
+    let features = fc.get_mut("features")
+        .and_then(|f| f.as_array_mut())
+        .ok_or_else(|| AppError::BadRequest("Not a FeatureCollection".into()))?;
+
+    let conversion: f64 = match units.to_lowercase().as_str() {
+        "sqft" => 10.7639,
+        "acres" => 1.0 / 4046.856422,
+        _ => 1.0, // sqm default
+    };
+
+    for feat in features.iter_mut() {
+        let geom_val = feat.get("geometry").cloned();
+        let area = if let Some(g) = geom_val {
+            if g.is_null() {
+                0.0f64
+            } else {
+                match Geometry::from_geojson(&g.to_string()) {
+                    Ok(geom) => {
+                        let area_m2 = unsafe { gdal_sys::OGR_G_Area(geom.c_geometry()) };
+                        (area_m2 * conversion).abs()
+                    }
+                    Err(_) => 0.0,
+                }
+            }
+        } else {
+            0.0
+        };
+
+        // Round to 4 decimal places
+        let area_rounded = (area * 10000.0).round() / 10000.0;
+
+        if let Some(props) = feat.get_mut("properties").and_then(|p| p.as_object_mut()) {
+            props.insert(field_name.clone(), serde_json::json!(area_rounded));
+        } else {
+            feat["properties"] = serde_json::json!({ &field_name: area_rounded });
+        }
+    }
+
+    Ok(fc)
+}

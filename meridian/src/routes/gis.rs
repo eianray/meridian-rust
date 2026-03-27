@@ -11,7 +11,7 @@ use crate::routes::{
     schema::{repair, schema, validate},
     topology::{difference, intersect, union},
     transform::{
-        add_field, erase, feature_to_line, feature_to_point, feature_to_polygon,
+        add_field, calculate_geometry, erase, feature_to_line, feature_to_point, feature_to_polygon,
         multipart_to_singlepart,
     },
     vectorize::vectorize,
@@ -38,6 +38,7 @@ pub fn router() -> Router {
         .route("/v1/feature-to-polygon", post(feature_to_polygon))
         .route("/v1/multipart-to-singlepart", post(multipart_to_singlepart))
         .route("/v1/add-field", post(add_field))
+        .route("/v1/calculate-geometry", post(calculate_geometry))
         // Topology (two-input)
         .route("/v1/union", post(union))
         .route("/v1/intersect", post(intersect))

@@ -264,3 +264,53 @@ pub async fn add_field(
     metrics::record_request_duration("add_field", t0.elapsed().as_secs_f64());
     Ok(Json(GeoJsonOutput { request_id, price_usd: price, result }))
 }
+
+// ── Calculate Geometry ────────────────────────────────────────────────────────
+
+pub async fn calculate_geometry(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut file_input: Option<GeoJsonInput> = None;
+    let mut field_name = "area".to_string();
+    let mut units = "acres".to_string();
+
+    while let Some(mut field) = multipart.next_field().await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => {
+                file_input = Some(GeoJsonInput::from_multipart_field(&mut field).await?);
+            }
+            Some("field_name") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("field_name: {e}")))?;
+                if !v.trim().is_empty() { field_name = v.trim().to_string(); }
+            }
+            Some("units") => {
+                let v = field.text().await.map_err(|e| AppError::BadRequest(format!("units: {e}")))?;
+                if !v.trim().is_empty() { units = v.trim().to_string(); }
+            }
+            _ => {}
+        }
+    }
+
+    let input = file_input.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
+    let geojson_str = validate_geojson_bytes(&input.bytes)?;
+    let price = compute_price(input.size);
+    let t0 = Instant::now();
+    metrics::record_request("calculate_geometry", "received");
+    payment_gate("calculate-geometry", input.size, price, &request_id, &headers, &state).await?;
+    let _permit = GDAL_SEMAPHORE.acquire().await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Semaphore: {e}")))?;
+    let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
+        crate::gis::transform::do_calculate_geometry(geojson_str, field_name, units)
+    })).await
+        .map_err(|_| AppError::BadRequest("Timed out".into()))?
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?
+        .map_err(|e: AppError| e)?;
+    metrics::record_request("calculate_geometry", "ok");
+    metrics::record_request_duration("calculate_geometry", t0.elapsed().as_secs_f64());
+    Ok(Json(GeoJsonOutput { request_id, price_usd: price, result }))
+}
