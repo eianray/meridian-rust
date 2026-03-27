@@ -29,7 +29,7 @@ pub struct DissolveParams {
     pub source_crs: Option<String>,
 }
 
-const OP_TIMEOUT: Duration = Duration::from_secs(30);
+const OP_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Dissolve GeoJSON features, optionally grouping by an attribute field.
 ///
@@ -207,35 +207,48 @@ fn do_dissolve(
             continue;
         }
 
-        let mut union_geom: Option<Geometry> = None;
+        // Build a GeometryCollection then use OGR_G_UnionCascaded for efficient
+        // spatial-tree union — orders of magnitude faster than sequential union()
+        // on large feature sets (e.g. 259k pixel-polygons).
+        let mut coll = Geometry::empty(gdal_sys::OGRwkbGeometryType::wkbGeometryCollection)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Create GeometryCollection: {e}")))?;
+
         for gv in &geom_vals {
             let mut geom = Geometry::from_geojson(&gv.to_string())
                 .map_err(|e| AppError::BadRequest(format!("Invalid geometry: {e}")))?;
-
             normalize_geom_to_wgs84(&mut geom, &source_crs)?;
-
-            union_geom = Some(match union_geom {
-                None => geom,
-                Some(existing) => existing.union(&geom).ok_or_else(|| {
-                    AppError::BadRequest(
-                        "Union failed — GEOS is required for dissolve operations".into(),
-                    )
-                })?,
-            });
+            coll.add_geometry(geom)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Add to collection: {e}")))?;
         }
 
-        if let Some(unioned) = union_geom {
-            let new_geom_json: serde_json::Value =
-                serde_json::from_str(&unioned.json()
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Geometry serialization: {e}")))?)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("Geometry JSON parse: {e}")))?;
-
-            out_features.push(serde_json::json!({
-                "type": "Feature",
-                "properties": props.unwrap_or(serde_json::json!({})),
-                "geometry": new_geom_json
-            }));
+        // Call OGR_G_UnionCascaded — returns a new geometry (caller owns it)
+        let unioned_raw = unsafe { gdal_sys::OGR_G_UnionCascaded(coll.c_geometry()) };
+        if unioned_raw.is_null() {
+            return Err(AppError::BadRequest(
+                "UnionCascaded failed — GEOS is required for dissolve operations".into(),
+            ));
         }
+
+        // Export to GeoJSON via C API, then free the raw geometry
+        let geojson_cstr = unsafe {
+            let ptr = gdal_sys::OGR_G_ExportToJson(unioned_raw);
+            gdal_sys::OGR_G_DestroyGeometry(unioned_raw);
+            if ptr.is_null() {
+                return Err(AppError::Internal(anyhow::anyhow!("OGR_G_ExportToJson returned null")));
+            }
+            std::ffi::CStr::from_ptr(ptr)
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        let new_geom_json: serde_json::Value = serde_json::from_str(&geojson_cstr)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Geometry JSON parse: {e}")))?;
+
+        out_features.push(serde_json::json!({
+            "type": "Feature",
+            "properties": props.unwrap_or(serde_json::json!({})),
+            "geometry": new_geom_json
+        }));
     }
 
     Ok(serde_json::json!({
