@@ -1173,6 +1173,9 @@ enum Expr {
     Pow(Box<Expr>, Box<Expr>),
     Neg(Box<Expr>),
     Abs(Box<Expr>),
+    Floor(Box<Expr>),
+    Ceil(Box<Expr>),
+    Round(Box<Expr>),
     Sqrt(Box<Expr>),
     Min(Box<Expr>, Box<Expr>),
     Max(Box<Expr>, Box<Expr>),
@@ -1343,7 +1346,7 @@ fn parse_call_or_primary(chars: &mut Vec<char>) -> Result<Expr, String> {
         let fn_name = possible_fn.chars().take_while(|c| c.is_ascii_alphanumeric()).collect::<String>();
         
         match fn_name.as_str() {
-            "abs" | "sqrt" | "sin" | "cos" | "tan" | "min" | "max" | "atan2" | "pow" => {
+            "abs" | "floor" | "ceil" | "round" | "sqrt" | "sin" | "cos" | "tan" | "min" | "max" | "atan2" | "pow" => {
                 // Consume the function name
                 for _ in 0..fn_name.len() {
                     chars.remove(0);
@@ -1355,6 +1358,18 @@ fn parse_call_or_primary(chars: &mut Vec<char>) -> Result<Expr, String> {
                     "abs" => {
                         let arg = parse_where(chars)?;
                         Expr::Abs(Box::new(arg))
+                    }
+                    "floor" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Floor(Box::new(arg))
+                    }
+                    "ceil" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Ceil(Box::new(arg))
+                    }
+                    "round" => {
+                        let arg = parse_where(chars)?;
+                        Expr::Round(Box::new(arg))
                     }
                     "sqrt" => {
                         let arg = parse_where(chars)?;
@@ -1527,6 +1542,18 @@ fn eval_expr(expr: &Expr, env: &BTreeMap<char, f32>) -> f32 {
         Expr::Abs(a) => {
             let av = eval_expr(a, env);
             if av.is_nan() { f32::NAN } else { av.abs() }
+        }
+        Expr::Floor(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.floor() }
+        }
+        Expr::Ceil(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.ceil() }
+        }
+        Expr::Round(a) => {
+            let av = eval_expr(a, env);
+            if av.is_nan() { f32::NAN } else { av.round() }
         }
         Expr::Sqrt(a) => {
             let av = eval_expr(a, env);
