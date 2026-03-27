@@ -295,16 +295,12 @@ fn run_gdaldem_slope_pct_sync(input_bytes: &[u8], input_size: usize) -> Result<R
 
     let out_path = tmp.path().join("slope_pct.tif");
 
-    // Build options: ["-p", "-s", "111120", nullptr]
-    // -p: percent slope
-    // -s 111120: scale factor (meters per degree) for geographic CRS inputs —
-    //   required when input is in lat/lon (degrees) so GDAL can match XY to Z units.
-    //   111120 = approximate meters per degree of latitude.
+    // Build options: ["-p", nullptr]
+    // -p: percent slope. Input should be in a projected CRS (e.g. EPSG:3338)
+    // so XY and Z units match — no scale factor needed.
     let opt_p  = "-p\0".as_ptr() as *mut c_char;
-    let opt_s  = "-s\0".as_ptr() as *mut c_char;
-    let opt_sv = "111120\0".as_ptr() as *mut c_char;
     let opt_null: *mut c_char = std::ptr::null_mut();
-    let options: [*mut c_char; 4] = [opt_p, opt_s, opt_sv, opt_null];
+    let options: [*mut c_char; 2] = [opt_p, opt_null];
 
     let opts = unsafe {
         gdal_sys::GDALDEMProcessingOptionsNew(options.as_ptr() as *mut *mut c_char, std::ptr::null_mut())
