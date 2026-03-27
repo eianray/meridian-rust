@@ -224,12 +224,17 @@ fn run_gdaldem_single_sync(
 
     let out_path = tmp.path().join(format!("output.{}", output_ext));
 
+    let out_path_c = std::ffi::CString::new(out_path.to_str().unwrap())
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("CString out_path: {e}")))?;
+    let mode_c = std::ffi::CString::new(mode)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("CString mode: {e}")))?;
+
     let mut usage_error: i32 = 0;
     let out_ds = unsafe {
         gdal_sys::GDALDEMProcessing(
-            out_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
+            out_path_c.as_ptr(),
             in_ds.c_dataset(),
-            mode.as_ptr() as *const std::os::raw::c_char,
+            mode_c.as_ptr(),
             std::ptr::null(),  // color filename (null for DEM modes)
             std::ptr::null(),  // options
             &mut usage_error,
@@ -295,13 +300,18 @@ fn run_gdaldem_slope_pct_sync(input_bytes: &[u8], input_size: usize) -> Result<R
 
     let out_path = tmp.path().join("slope_pct.tif");
 
+    let out_path_c = std::ffi::CString::new(out_path.to_str().unwrap())
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("CString out_path: {e}")))?;
+    let mode_c = std::ffi::CString::new("slope")
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("CString mode: {e}")))?;
+
     // Build options: ["-p", "-compute_edges", nullptr]
     // -p: percent slope
     // -compute_edges: prevents edge artifacts and failures on larger rasters
-    let opt_p  = "-p\0".as_ptr() as *mut c_char;
-    let opt_ce = "-compute_edges\0".as_ptr() as *mut c_char;
+    let opt_p  = std::ffi::CString::new("-p").unwrap();
+    let opt_ce = std::ffi::CString::new("-compute_edges").unwrap();
     let opt_null: *mut c_char = std::ptr::null_mut();
-    let options: [*mut c_char; 3] = [opt_p, opt_ce, opt_null];
+    let options: [*mut c_char; 3] = [opt_p.as_ptr() as *mut c_char, opt_ce.as_ptr() as *mut c_char, opt_null];
 
     let opts = unsafe {
         gdal_sys::GDALDEMProcessingOptionsNew(options.as_ptr() as *mut *mut c_char, std::ptr::null_mut())
@@ -313,9 +323,9 @@ fn run_gdaldem_slope_pct_sync(input_bytes: &[u8], input_size: usize) -> Result<R
     let mut usage_error: i32 = 0;
     let out_ds = unsafe {
         gdal_sys::GDALDEMProcessing(
-            out_path.to_str().unwrap().as_ptr() as *const std::os::raw::c_char,
+            out_path_c.as_ptr(),
             in_ds.c_dataset(),
-            b"slope\0".as_ptr() as *const std::os::raw::c_char,
+            mode_c.as_ptr(),
             std::ptr::null(), // color filename
             opts,
             &mut usage_error,
