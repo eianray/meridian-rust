@@ -52,6 +52,7 @@ pub async fn package_gdb(
     // Parse all layer/name pairs from multipart
     // layer_1..layer_10, name_1..name_10
     let mut layers: Vec<(String, Vec<u8>)> = Vec::with_capacity(10);
+    let mut source_crs: String = "EPSG:4326".to_string(); // default
 
     // Temporary storage for layer bytes while we collect names
     let mut layer_bytes: std::collections::HashMap<usize, Vec<u8>> =
@@ -88,6 +89,9 @@ pub async fn package_gdb(
                     layer_bytes.insert(n, bytes.to_vec());
                 }
             }
+        } else if name == "source_crs" {
+            let v = field.text().await.map_err(|e| AppError::BadRequest(format!("source_crs: {e}")))?;
+            if !v.trim().is_empty() { source_crs = v.trim().to_string(); }
         } else if name.starts_with("name_") {
             if let Some(idx) = name.strip_prefix("name_") {
                 if let Ok(n) = idx.parse::<usize>() {
@@ -150,7 +154,7 @@ pub async fn package_gdb(
     metrics::record_request("package-gdb", "received");
     payment_gate("package-gdb", total_size, price, &request_id, &headers, &state).await?;
 
-    let result = do_package_gdb(&layers)?;
+    let result = do_package_gdb(&layers, &source_crs)?;
 
     metrics::record_request("package-gdb", "ok");
     metrics::record_request_duration("package-gdb", t0.elapsed().as_secs_f64());
@@ -167,7 +171,7 @@ pub async fn package_gdb(
     }))
 }
 
-fn do_package_gdb(layers: &[(String, Vec<u8>)]) -> Result<Vec<u8>, AppError> {
+fn do_package_gdb(layers: &[(String, Vec<u8>)], source_crs: &str) -> Result<Vec<u8>, AppError> {
     use std::process::Command;
 
     let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
@@ -202,8 +206,12 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)]) -> Result<Vec<u8>, AppError> {
         }
 
         // Step 2: Write exploded GeoJSON → OpenFileGDB
+        // GeoJSON spec defaults to WGS84 but our data is in source_crs (e.g. EPSG:3338).
+        // Set -s_srs and -t_srs so the GDB layer has the correct spatial reference.
         let mut cmd = Command::new("ogr2ogr");
         cmd.arg("-f").arg("OpenFileGDB");
+        cmd.arg("-s_srs").arg(source_crs);
+        cmd.arg("-t_srs").arg(source_crs);
 
         if layer_idx == 0 {
             cmd.arg("-overwrite");
@@ -358,7 +366,7 @@ mod tests {
     #[test]
     fn test_package_gdb_single_layer() {
         let layers = vec![("cities".to_string(), make_single_layer_fc())];
-        let result = do_package_gdb(&layers);
+        let result = do_package_gdb(&layers, "EPSG:4326");
         assert!(result.is_ok(), "Expected ok, got: {:?}", result);
         let bytes = result.unwrap();
         assert!(!bytes.is_empty(), "Zip should not be empty");
@@ -380,7 +388,7 @@ mod tests {
     #[test]
     fn test_package_gdb_multiple_layers() {
         let layers = make_three_layers();
-        let result = do_package_gdb(&layers);
+        let result = do_package_gdb(&layers, "EPSG:4326");
         assert!(result.is_ok(), "Expected ok, got: {:?}", result);
         let bytes = result.unwrap();
 
@@ -402,7 +410,7 @@ mod tests {
     fn test_package_gdb_invalid_geojson() {
         let bad_bytes = b"not geojson at all".to_vec();
         let layers = vec![("layer1".to_string(), bad_bytes)];
-        let result = do_package_gdb(&layers);
+        let result = do_package_gdb(&layers, "EPSG:4326");
         assert!(result.is_err(), "Expected error for invalid GeoJSON");
         // Invalid JSON is caught as BadRequest; invalid GeoJSON structure may be Internal
         let err = result.unwrap_err();
@@ -418,7 +426,7 @@ mod tests {
     fn test_package_gdb_empty_layers() {
         let layers: Vec<(String, Vec<u8>)> = vec![];
         // The handler checks for empty, but do_package_gdb should also handle gracefully
-        let result = do_package_gdb(&layers);
+        let result = do_package_gdb(&layers, "EPSG:4326");
         // Should not panic; will fail on GDB creation
         assert!(result.is_err());
     }
@@ -447,7 +455,7 @@ mod tests {
             ]
         });
         let layers = vec![("points".to_string(), serde_json::to_vec(&fc).unwrap())];
-        let result = do_package_gdb(&layers);
+        let result = do_package_gdb(&layers, "EPSG:4326");
         assert!(result.is_ok(), "Expected ok, got: {:?}", result);
         let bytes = result.unwrap();
         assert!(!bytes.is_empty());
