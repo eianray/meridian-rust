@@ -52,6 +52,7 @@ use gis::{
     ),
     paths(
         routes::health::health,
+        routes::epsg::epsg_search,
         gis::reproject::reproject,
         gis::buffer::buffer,
         gis::clip::clip,
@@ -73,6 +74,7 @@ use gis::{
     components(
         schemas(
             HealthResponse,
+            routes::epsg::EpsgEntry,
             GeoJsonOutput,
             PaymentRequired,
             BatchResponse,
@@ -166,6 +168,7 @@ fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>) ->
         .route("/", get(|| async { axum::response::Redirect::permanent("https://meridian.nodeapi.ai") }))
         // Versioned routes
         .route("/v1/health", get(health))
+        .route("/v1/epsg/search", get(routes::epsg::epsg_search))
         // Legacy (unversioned) alias
         .route("/health", get(health))
         // GIS endpoints (with rate limiting)

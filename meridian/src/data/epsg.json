@@ -1,0 +1,1682 @@
+[
+  {
+    "code": 4326,
+    "name": "WGS 84",
+    "area": "World"
+  },
+  {
+    "code": 4269,
+    "name": "NAD83",
+    "area": "North America"
+  },
+  {
+    "code": 4267,
+    "name": "NAD27",
+    "area": "North America"
+  },
+  {
+    "code": 4979,
+    "name": "WGS 84 (3D)",
+    "area": "World"
+  },
+  {
+    "code": 4978,
+    "name": "WGS 84 (ECEF)",
+    "area": "World"
+  },
+  {
+    "code": 4155,
+    "name": "ETRS89",
+    "area": "Europe"
+  },
+  {
+    "code": 4896,
+    "name": "ETRS89 (3D)",
+    "area": "Europe"
+  },
+  {
+    "code": 5070,
+    "name": "NAD83 / Conus Albers",
+    "area": "United States"
+  },
+  {
+    "code": 3857,
+    "name": "WGS 84 / Pseudo-Mercator",
+    "area": "World"
+  },
+  {
+    "code": 2163,
+    "name": "US National Atlas Equal Area",
+    "area": "United States"
+  },
+  {
+    "code": 26903,
+    "name": "NAD83 / UTM zone 3N",
+    "area": "United States"
+  },
+  {
+    "code": 26904,
+    "name": "NAD83 / UTM zone 4N",
+    "area": "United States"
+  },
+  {
+    "code": 26905,
+    "name": "NAD83 / UTM zone 5N",
+    "area": "United States"
+  },
+  {
+    "code": 26906,
+    "name": "NAD83 / UTM zone 6N",
+    "area": "United States"
+  },
+  {
+    "code": 26907,
+    "name": "NAD83 / UTM zone 7N",
+    "area": "United States"
+  },
+  {
+    "code": 26908,
+    "name": "NAD83 / UTM zone 8N",
+    "area": "United States"
+  },
+  {
+    "code": 26909,
+    "name": "NAD83 / UTM zone 9N",
+    "area": "United States"
+  },
+  {
+    "code": 26910,
+    "name": "NAD83 / UTM zone 10N",
+    "area": "United States"
+  },
+  {
+    "code": 26911,
+    "name": "NAD83 / UTM zone 11N",
+    "area": "United States"
+  },
+  {
+    "code": 26912,
+    "name": "NAD83 / UTM zone 12N",
+    "area": "United States"
+  },
+  {
+    "code": 26913,
+    "name": "NAD83 / UTM zone 13N",
+    "area": "United States"
+  },
+  {
+    "code": 26914,
+    "name": "NAD83 / UTM zone 14N",
+    "area": "United States"
+  },
+  {
+    "code": 26915,
+    "name": "NAD83 / UTM zone 15N",
+    "area": "United States"
+  },
+  {
+    "code": 26916,
+    "name": "NAD83 / UTM zone 16N",
+    "area": "United States"
+  },
+  {
+    "code": 26917,
+    "name": "NAD83 / UTM zone 17N",
+    "area": "United States"
+  },
+  {
+    "code": 26918,
+    "name": "NAD83 / UTM zone 18N",
+    "area": "United States"
+  },
+  {
+    "code": 26919,
+    "name": "NAD83 / UTM zone 19N",
+    "area": "United States"
+  },
+  {
+    "code": 32601,
+    "name": "WGS 84 / UTM zone 1N",
+    "area": "World"
+  },
+  {
+    "code": 32602,
+    "name": "WGS 84 / UTM zone 2N",
+    "area": "World"
+  },
+  {
+    "code": 32603,
+    "name": "WGS 84 / UTM zone 3N",
+    "area": "World"
+  },
+  {
+    "code": 32604,
+    "name": "WGS 84 / UTM zone 4N",
+    "area": "World"
+  },
+  {
+    "code": 32605,
+    "name": "WGS 84 / UTM zone 5N",
+    "area": "World"
+  },
+  {
+    "code": 32606,
+    "name": "WGS 84 / UTM zone 6N",
+    "area": "World"
+  },
+  {
+    "code": 32607,
+    "name": "WGS 84 / UTM zone 7N",
+    "area": "World"
+  },
+  {
+    "code": 32608,
+    "name": "WGS 84 / UTM zone 8N",
+    "area": "World"
+  },
+  {
+    "code": 32609,
+    "name": "WGS 84 / UTM zone 9N",
+    "area": "World"
+  },
+  {
+    "code": 32610,
+    "name": "WGS 84 / UTM zone 10N",
+    "area": "World"
+  },
+  {
+    "code": 32611,
+    "name": "WGS 84 / UTM zone 11N",
+    "area": "World"
+  },
+  {
+    "code": 32612,
+    "name": "WGS 84 / UTM zone 12N",
+    "area": "World"
+  },
+  {
+    "code": 32613,
+    "name": "WGS 84 / UTM zone 13N",
+    "area": "World"
+  },
+  {
+    "code": 32614,
+    "name": "WGS 84 / UTM zone 14N",
+    "area": "World"
+  },
+  {
+    "code": 32615,
+    "name": "WGS 84 / UTM zone 15N",
+    "area": "World"
+  },
+  {
+    "code": 32616,
+    "name": "WGS 84 / UTM zone 16N",
+    "area": "World"
+  },
+  {
+    "code": 32617,
+    "name": "WGS 84 / UTM zone 17N",
+    "area": "World"
+  },
+  {
+    "code": 32618,
+    "name": "WGS 84 / UTM zone 18N",
+    "area": "World"
+  },
+  {
+    "code": 32619,
+    "name": "WGS 84 / UTM zone 19N",
+    "area": "World"
+  },
+  {
+    "code": 32620,
+    "name": "WGS 84 / UTM zone 20N",
+    "area": "World"
+  },
+  {
+    "code": 32621,
+    "name": "WGS 84 / UTM zone 21N",
+    "area": "World"
+  },
+  {
+    "code": 32622,
+    "name": "WGS 84 / UTM zone 22N",
+    "area": "World"
+  },
+  {
+    "code": 32623,
+    "name": "WGS 84 / UTM zone 23N",
+    "area": "World"
+  },
+  {
+    "code": 32624,
+    "name": "WGS 84 / UTM zone 24N",
+    "area": "World"
+  },
+  {
+    "code": 32625,
+    "name": "WGS 84 / UTM zone 25N",
+    "area": "World"
+  },
+  {
+    "code": 32626,
+    "name": "WGS 84 / UTM zone 26N",
+    "area": "World"
+  },
+  {
+    "code": 32627,
+    "name": "WGS 84 / UTM zone 27N",
+    "area": "World"
+  },
+  {
+    "code": 32628,
+    "name": "WGS 84 / UTM zone 28N",
+    "area": "World"
+  },
+  {
+    "code": 32629,
+    "name": "WGS 84 / UTM zone 29N",
+    "area": "World"
+  },
+  {
+    "code": 32630,
+    "name": "WGS 84 / UTM zone 30N",
+    "area": "World"
+  },
+  {
+    "code": 32631,
+    "name": "WGS 84 / UTM zone 31N",
+    "area": "World"
+  },
+  {
+    "code": 32632,
+    "name": "WGS 84 / UTM zone 32N",
+    "area": "World"
+  },
+  {
+    "code": 32633,
+    "name": "WGS 84 / UTM zone 33N",
+    "area": "World"
+  },
+  {
+    "code": 32634,
+    "name": "WGS 84 / UTM zone 34N",
+    "area": "World"
+  },
+  {
+    "code": 32635,
+    "name": "WGS 84 / UTM zone 35N",
+    "area": "World"
+  },
+  {
+    "code": 32636,
+    "name": "WGS 84 / UTM zone 36N",
+    "area": "World"
+  },
+  {
+    "code": 32637,
+    "name": "WGS 84 / UTM zone 37N",
+    "area": "World"
+  },
+  {
+    "code": 32638,
+    "name": "WGS 84 / UTM zone 38N",
+    "area": "World"
+  },
+  {
+    "code": 32639,
+    "name": "WGS 84 / UTM zone 39N",
+    "area": "World"
+  },
+  {
+    "code": 32640,
+    "name": "WGS 84 / UTM zone 40N",
+    "area": "World"
+  },
+  {
+    "code": 32641,
+    "name": "WGS 84 / UTM zone 41N",
+    "area": "World"
+  },
+  {
+    "code": 32642,
+    "name": "WGS 84 / UTM zone 42N",
+    "area": "World"
+  },
+  {
+    "code": 32643,
+    "name": "WGS 84 / UTM zone 43N",
+    "area": "World"
+  },
+  {
+    "code": 32644,
+    "name": "WGS 84 / UTM zone 44N",
+    "area": "World"
+  },
+  {
+    "code": 32645,
+    "name": "WGS 84 / UTM zone 45N",
+    "area": "World"
+  },
+  {
+    "code": 32646,
+    "name": "WGS 84 / UTM zone 46N",
+    "area": "World"
+  },
+  {
+    "code": 32647,
+    "name": "WGS 84 / UTM zone 47N",
+    "area": "World"
+  },
+  {
+    "code": 32648,
+    "name": "WGS 84 / UTM zone 48N",
+    "area": "World"
+  },
+  {
+    "code": 32649,
+    "name": "WGS 84 / UTM zone 49N",
+    "area": "World"
+  },
+  {
+    "code": 32650,
+    "name": "WGS 84 / UTM zone 50N",
+    "area": "World"
+  },
+  {
+    "code": 32651,
+    "name": "WGS 84 / UTM zone 51N",
+    "area": "World"
+  },
+  {
+    "code": 32652,
+    "name": "WGS 84 / UTM zone 52N",
+    "area": "World"
+  },
+  {
+    "code": 32653,
+    "name": "WGS 84 / UTM zone 53N",
+    "area": "World"
+  },
+  {
+    "code": 32654,
+    "name": "WGS 84 / UTM zone 54N",
+    "area": "World"
+  },
+  {
+    "code": 32655,
+    "name": "WGS 84 / UTM zone 55N",
+    "area": "World"
+  },
+  {
+    "code": 32656,
+    "name": "WGS 84 / UTM zone 56N",
+    "area": "World"
+  },
+  {
+    "code": 32657,
+    "name": "WGS 84 / UTM zone 57N",
+    "area": "World"
+  },
+  {
+    "code": 32658,
+    "name": "WGS 84 / UTM zone 58N",
+    "area": "World"
+  },
+  {
+    "code": 32659,
+    "name": "WGS 84 / UTM zone 59N",
+    "area": "World"
+  },
+  {
+    "code": 32660,
+    "name": "WGS 84 / UTM zone 60N",
+    "area": "World"
+  },
+  {
+    "code": 32701,
+    "name": "WGS 84 / UTM zone 1S",
+    "area": "World"
+  },
+  {
+    "code": 32702,
+    "name": "WGS 84 / UTM zone 2S",
+    "area": "World"
+  },
+  {
+    "code": 32703,
+    "name": "WGS 84 / UTM zone 3S",
+    "area": "World"
+  },
+  {
+    "code": 32704,
+    "name": "WGS 84 / UTM zone 4S",
+    "area": "World"
+  },
+  {
+    "code": 32705,
+    "name": "WGS 84 / UTM zone 5S",
+    "area": "World"
+  },
+  {
+    "code": 32706,
+    "name": "WGS 84 / UTM zone 6S",
+    "area": "World"
+  },
+  {
+    "code": 32707,
+    "name": "WGS 84 / UTM zone 7S",
+    "area": "World"
+  },
+  {
+    "code": 32708,
+    "name": "WGS 84 / UTM zone 8S",
+    "area": "World"
+  },
+  {
+    "code": 32709,
+    "name": "WGS 84 / UTM zone 9S",
+    "area": "World"
+  },
+  {
+    "code": 32710,
+    "name": "WGS 84 / UTM zone 10S",
+    "area": "World"
+  },
+  {
+    "code": 32711,
+    "name": "WGS 84 / UTM zone 11S",
+    "area": "World"
+  },
+  {
+    "code": 32712,
+    "name": "WGS 84 / UTM zone 12S",
+    "area": "World"
+  },
+  {
+    "code": 32713,
+    "name": "WGS 84 / UTM zone 13S",
+    "area": "World"
+  },
+  {
+    "code": 32714,
+    "name": "WGS 84 / UTM zone 14S",
+    "area": "World"
+  },
+  {
+    "code": 32715,
+    "name": "WGS 84 / UTM zone 15S",
+    "area": "World"
+  },
+  {
+    "code": 32716,
+    "name": "WGS 84 / UTM zone 16S",
+    "area": "World"
+  },
+  {
+    "code": 32717,
+    "name": "WGS 84 / UTM zone 17S",
+    "area": "World"
+  },
+  {
+    "code": 32718,
+    "name": "WGS 84 / UTM zone 18S",
+    "area": "World"
+  },
+  {
+    "code": 32719,
+    "name": "WGS 84 / UTM zone 19S",
+    "area": "World"
+  },
+  {
+    "code": 32720,
+    "name": "WGS 84 / UTM zone 20S",
+    "area": "World"
+  },
+  {
+    "code": 32721,
+    "name": "WGS 84 / UTM zone 21S",
+    "area": "World"
+  },
+  {
+    "code": 32722,
+    "name": "WGS 84 / UTM zone 22S",
+    "area": "World"
+  },
+  {
+    "code": 32723,
+    "name": "WGS 84 / UTM zone 23S",
+    "area": "World"
+  },
+  {
+    "code": 32724,
+    "name": "WGS 84 / UTM zone 24S",
+    "area": "World"
+  },
+  {
+    "code": 32725,
+    "name": "WGS 84 / UTM zone 25S",
+    "area": "World"
+  },
+  {
+    "code": 32726,
+    "name": "WGS 84 / UTM zone 26S",
+    "area": "World"
+  },
+  {
+    "code": 32727,
+    "name": "WGS 84 / UTM zone 27S",
+    "area": "World"
+  },
+  {
+    "code": 32728,
+    "name": "WGS 84 / UTM zone 28S",
+    "area": "World"
+  },
+  {
+    "code": 32729,
+    "name": "WGS 84 / UTM zone 29S",
+    "area": "World"
+  },
+  {
+    "code": 32730,
+    "name": "WGS 84 / UTM zone 30S",
+    "area": "World"
+  },
+  {
+    "code": 32731,
+    "name": "WGS 84 / UTM zone 31S",
+    "area": "World"
+  },
+  {
+    "code": 32732,
+    "name": "WGS 84 / UTM zone 32S",
+    "area": "World"
+  },
+  {
+    "code": 32733,
+    "name": "WGS 84 / UTM zone 33S",
+    "area": "World"
+  },
+  {
+    "code": 32734,
+    "name": "WGS 84 / UTM zone 34S",
+    "area": "World"
+  },
+  {
+    "code": 32735,
+    "name": "WGS 84 / UTM zone 35S",
+    "area": "World"
+  },
+  {
+    "code": 32736,
+    "name": "WGS 84 / UTM zone 36S",
+    "area": "World"
+  },
+  {
+    "code": 32737,
+    "name": "WGS 84 / UTM zone 37S",
+    "area": "World"
+  },
+  {
+    "code": 32738,
+    "name": "WGS 84 / UTM zone 38S",
+    "area": "World"
+  },
+  {
+    "code": 32739,
+    "name": "WGS 84 / UTM zone 39S",
+    "area": "World"
+  },
+  {
+    "code": 32740,
+    "name": "WGS 84 / UTM zone 40S",
+    "area": "World"
+  },
+  {
+    "code": 32741,
+    "name": "WGS 84 / UTM zone 41S",
+    "area": "World"
+  },
+  {
+    "code": 32742,
+    "name": "WGS 84 / UTM zone 42S",
+    "area": "World"
+  },
+  {
+    "code": 32743,
+    "name": "WGS 84 / UTM zone 43S",
+    "area": "World"
+  },
+  {
+    "code": 32744,
+    "name": "WGS 84 / UTM zone 44S",
+    "area": "World"
+  },
+  {
+    "code": 32745,
+    "name": "WGS 84 / UTM zone 45S",
+    "area": "World"
+  },
+  {
+    "code": 32746,
+    "name": "WGS 84 / UTM zone 46S",
+    "area": "World"
+  },
+  {
+    "code": 32747,
+    "name": "WGS 84 / UTM zone 47S",
+    "area": "World"
+  },
+  {
+    "code": 32748,
+    "name": "WGS 84 / UTM zone 48S",
+    "area": "World"
+  },
+  {
+    "code": 32749,
+    "name": "WGS 84 / UTM zone 49S",
+    "area": "World"
+  },
+  {
+    "code": 32750,
+    "name": "WGS 84 / UTM zone 50S",
+    "area": "World"
+  },
+  {
+    "code": 32751,
+    "name": "WGS 84 / UTM zone 51S",
+    "area": "World"
+  },
+  {
+    "code": 32752,
+    "name": "WGS 84 / UTM zone 52S",
+    "area": "World"
+  },
+  {
+    "code": 32753,
+    "name": "WGS 84 / UTM zone 53S",
+    "area": "World"
+  },
+  {
+    "code": 32754,
+    "name": "WGS 84 / UTM zone 54S",
+    "area": "World"
+  },
+  {
+    "code": 32755,
+    "name": "WGS 84 / UTM zone 55S",
+    "area": "World"
+  },
+  {
+    "code": 32756,
+    "name": "WGS 84 / UTM zone 56S",
+    "area": "World"
+  },
+  {
+    "code": 32757,
+    "name": "WGS 84 / UTM zone 57S",
+    "area": "World"
+  },
+  {
+    "code": 32758,
+    "name": "WGS 84 / UTM zone 58S",
+    "area": "World"
+  },
+  {
+    "code": 32759,
+    "name": "WGS 84 / UTM zone 59S",
+    "area": "World"
+  },
+  {
+    "code": 32760,
+    "name": "WGS 84 / UTM zone 60S",
+    "area": "World"
+  },
+  {
+    "code": 3338,
+    "name": "NAD83 / Alaska Albers",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26931,
+    "name": "NAD83 / Alaska zone 1",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26932,
+    "name": "NAD83 / Alaska zone 2",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26933,
+    "name": "NAD83 / Alaska zone 3",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26934,
+    "name": "NAD83 / Alaska zone 4",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26935,
+    "name": "NAD83 / Alaska zone 5",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26936,
+    "name": "NAD83 / Alaska zone 6",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26937,
+    "name": "NAD83 / Alaska zone 7",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26938,
+    "name": "NAD83 / Alaska zone 8",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26939,
+    "name": "NAD83 / Alaska zone 9",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26940,
+    "name": "NAD83 / Alaska zone 10",
+    "area": "United States \u2014 Alaska"
+  },
+  {
+    "code": 26951,
+    "name": "NAD83 / Hawaii zone 1",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 26952,
+    "name": "NAD83 / Hawaii zone 2",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 26953,
+    "name": "NAD83 / Hawaii zone 3",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 26954,
+    "name": "NAD83 / Hawaii zone 4",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 26955,
+    "name": "NAD83 / Hawaii zone 5",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 32145,
+    "name": "NAD83(HARN) / Hawaii zone 3",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 32146,
+    "name": "NAD83(HARN) / Hawaii zone 4",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 32147,
+    "name": "NAD83(HARN) / Hawaii zone 5",
+    "area": "United States \u2014 Hawaii"
+  },
+  {
+    "code": 2201,
+    "name": "NAD83 / Alabama East",
+    "area": "United States \u2014 Alabama"
+  },
+  {
+    "code": 2202,
+    "name": "NAD83 / Alabama West",
+    "area": "United States \u2014 Alabama"
+  },
+  {
+    "code": 3021,
+    "name": "NAD83 / Arizona East",
+    "area": "United States \u2014 Arizona"
+  },
+  {
+    "code": 3022,
+    "name": "NAD83 / Arizona Central",
+    "area": "United States \u2014 Arizona"
+  },
+  {
+    "code": 3023,
+    "name": "NAD83 / Arizona West",
+    "area": "United States \u2014 Arizona"
+  },
+  {
+    "code": 3401,
+    "name": "NAD83 / Arkansas North",
+    "area": "United States \u2014 Arkansas"
+  },
+  {
+    "code": 3402,
+    "name": "NAD83 / Arkansas South",
+    "area": "United States \u2014 Arkansas"
+  },
+  {
+    "code": 2225,
+    "name": "NAD83 / California zone 1",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2226,
+    "name": "NAD83 / California zone 2",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2227,
+    "name": "NAD83 / California zone 3",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2228,
+    "name": "NAD83 / California zone 4",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2229,
+    "name": "NAD83 / California zone 5",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2230,
+    "name": "NAD83 / California zone 6",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2231,
+    "name": "NAD83 / California zone 7",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2232,
+    "name": "NAD83 / California zone 8",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2233,
+    "name": "NAD83 / California zone 9",
+    "area": "United States \u2014 California"
+  },
+  {
+    "code": 2876,
+    "name": "NAD83 / Colorado North",
+    "area": "United States \u2014 Colorado"
+  },
+  {
+    "code": 2877,
+    "name": "NAD83 / Colorado Central",
+    "area": "United States \u2014 Colorado"
+  },
+  {
+    "code": 2878,
+    "name": "NAD83 / Colorado South",
+    "area": "United States \u2014 Colorado"
+  },
+  {
+    "code": 2235,
+    "name": "NAD83 / Connecticut",
+    "area": "United States \u2014 Connecticut"
+  },
+  {
+    "code": 2236,
+    "name": "NAD83 / Connecticut (ft)",
+    "area": "United States \u2014 Connecticut"
+  },
+  {
+    "code": 2249,
+    "name": "NAD83 / Delaware",
+    "area": "United States \u2014 Delaware"
+  },
+  {
+    "code": 2239,
+    "name": "NAD83 / Florida East",
+    "area": "United States \u2014 Florida"
+  },
+  {
+    "code": 2240,
+    "name": "NAD83 / Florida North",
+    "area": "United States \u2014 Florida"
+  },
+  {
+    "code": 2241,
+    "name": "NAD83 / Florida West",
+    "area": "United States \u2014 Florida"
+  },
+  {
+    "code": 2244,
+    "name": "NAD83 / Georgia East",
+    "area": "United States \u2014 Georgia"
+  },
+  {
+    "code": 2245,
+    "name": "NAD83 / Georgia West",
+    "area": "United States \u2014 Georgia"
+  },
+  {
+    "code": 2551,
+    "name": "NAD83 / Idaho East",
+    "area": "United States \u2014 Idaho"
+  },
+  {
+    "code": 2552,
+    "name": "NAD83 / Idaho Central",
+    "area": "United States \u2014 Idaho"
+  },
+  {
+    "code": 2553,
+    "name": "NAD83 / Idaho West",
+    "area": "United States \u2014 Idaho"
+  },
+  {
+    "code": 2403,
+    "name": "NAD83 / Illinois East",
+    "area": "United States \u2014 Illinois"
+  },
+  {
+    "code": 2404,
+    "name": "NAD83 / Illinois West",
+    "area": "United States \u2014 Illinois"
+  },
+  {
+    "code": 2255,
+    "name": "NAD83 / Indiana East",
+    "area": "United States \u2014 Indiana"
+  },
+  {
+    "code": 2256,
+    "name": "NAD83 / Indiana West",
+    "area": "United States \u2014 Indiana"
+  },
+  {
+    "code": 2277,
+    "name": "NAD83 / Iowa North",
+    "area": "United States \u2014 Iowa"
+  },
+  {
+    "code": 2278,
+    "name": "NAD83 / Iowa South",
+    "area": "United States \u2014 Iowa"
+  },
+  {
+    "code": 2819,
+    "name": "NAD83 / Kansas North",
+    "area": "United States \u2014 Kansas"
+  },
+  {
+    "code": 2820,
+    "name": "NAD83 / Kansas South",
+    "area": "United States \u2014 Kansas"
+  },
+  {
+    "code": 2285,
+    "name": "NAD83 / Kentucky North",
+    "area": "United States \u2014 Kentucky"
+  },
+  {
+    "code": 2286,
+    "name": "NAD83 / Kentucky South",
+    "area": "United States \u2014 Kentucky"
+  },
+  {
+    "code": 2292,
+    "name": "NAD83 / Louisiana North",
+    "area": "United States \u2014 Louisiana"
+  },
+  {
+    "code": 2293,
+    "name": "NAD83 / Louisiana South",
+    "area": "United States \u2014 Louisiana"
+  },
+  {
+    "code": 2291,
+    "name": "NAD83 / Louisiana Offshore",
+    "area": "United States \u2014 Louisiana"
+  },
+  {
+    "code": 2289,
+    "name": "NAD83 / Maryland",
+    "area": "United States \u2014 Maryland"
+  },
+  {
+    "code": 2248,
+    "name": "NAD83 / Massachusetts Mainland",
+    "area": "United States \u2014 Massachusetts"
+  },
+  {
+    "code": 2252,
+    "name": "NAD83 / Massachusetts Island",
+    "area": "United States \u2014 Massachusetts"
+  },
+  {
+    "code": 2258,
+    "name": "NAD83 / Michigan North",
+    "area": "United States \u2014 Michigan"
+  },
+  {
+    "code": 2259,
+    "name": "NAD83 / Michigan Central",
+    "area": "United States \u2014 Michigan"
+  },
+  {
+    "code": 2260,
+    "name": "NAD83 / Michigan South",
+    "area": "United States \u2014 Michigan"
+  },
+  {
+    "code": 2261,
+    "name": "NAD83 / Minnesota North",
+    "area": "United States \u2014 Minnesota"
+  },
+  {
+    "code": 2262,
+    "name": "NAD83 / Minnesota Central",
+    "area": "United States \u2014 Minnesota"
+  },
+  {
+    "code": 2263,
+    "name": "NAD83 / Minnesota South",
+    "area": "United States \u2014 Minnesota"
+  },
+  {
+    "code": 2254,
+    "name": "NAD83 / Mississippi East",
+    "area": "United States \u2014 Mississippi"
+  },
+  {
+    "code": 2253,
+    "name": "NAD83 / Mississippi West",
+    "area": "United States \u2014 Mississippi"
+  },
+  {
+    "code": 2401,
+    "name": "NAD83 / Missouri East",
+    "area": "United States \u2014 Missouri"
+  },
+  {
+    "code": 2402,
+    "name": "NAD83 / Missouri Central",
+    "area": "United States \u2014 Missouri"
+  },
+  {
+    "code": 2405,
+    "name": "NAD83 / Missouri West",
+    "area": "United States \u2014 Missouri"
+  },
+  {
+    "code": 2816,
+    "name": "NAD83 / Montana",
+    "area": "United States \u2014 Montana"
+  },
+  {
+    "code": 3201,
+    "name": "NAD83 / Nebraska North",
+    "area": "United States \u2014 Nebraska"
+  },
+  {
+    "code": 3202,
+    "name": "NAD83 / Nebraska South",
+    "area": "United States \u2014 Nebraska"
+  },
+  {
+    "code": 3211,
+    "name": "NAD83 / Nevada East",
+    "area": "United States \u2014 Nevada"
+  },
+  {
+    "code": 3212,
+    "name": "NAD83 / Nevada Central",
+    "area": "United States \u2014 Nevada"
+  },
+  {
+    "code": 3213,
+    "name": "NAD83 / Nevada West",
+    "area": "United States \u2014 Nevada"
+  },
+  {
+    "code": 2246,
+    "name": "NAD83 / New Jersey",
+    "area": "United States \u2014 New Jersey"
+  },
+  {
+    "code": 3214,
+    "name": "NAD83 / New Mexico East",
+    "area": "United States \u2014 New Mexico"
+  },
+  {
+    "code": 3215,
+    "name": "NAD83 / New Mexico Central",
+    "area": "United States \u2014 New Mexico"
+  },
+  {
+    "code": 3216,
+    "name": "NAD83 / New Mexico West",
+    "area": "United States \u2014 New Mexico"
+  },
+  {
+    "code": 2264,
+    "name": "NAD83 / New York East",
+    "area": "United States \u2014 New York"
+  },
+  {
+    "code": 2265,
+    "name": "NAD83 / New York Central",
+    "area": "United States \u2014 New York"
+  },
+  {
+    "code": 2266,
+    "name": "NAD83 / New York West",
+    "area": "United States \u2014 New York"
+  },
+  {
+    "code": 2267,
+    "name": "NAD83 / New York Long Island",
+    "area": "United States \u2014 New York"
+  },
+  {
+    "code": 2268,
+    "name": "NAD83 / North Carolina",
+    "area": "United States \u2014 North Carolina"
+  },
+  {
+    "code": 2269,
+    "name": "NAD83 / North Dakota North",
+    "area": "United States \u2014 North Dakota"
+  },
+  {
+    "code": 2270,
+    "name": "NAD83 / North Dakota South",
+    "area": "United States \u2014 North Dakota"
+  },
+  {
+    "code": 2283,
+    "name": "NAD83 / Ohio North",
+    "area": "United States \u2014 Ohio"
+  },
+  {
+    "code": 2284,
+    "name": "NAD83 / Ohio South",
+    "area": "United States \u2014 Ohio"
+  },
+  {
+    "code": 2839,
+    "name": "NAD83 / Oklahoma North",
+    "area": "United States \u2014 Oklahoma"
+  },
+  {
+    "code": 2840,
+    "name": "NAD83 / Oklahoma South",
+    "area": "United States \u2014 Oklahoma"
+  },
+  {
+    "code": 2837,
+    "name": "NAD83 / Oregon North",
+    "area": "United States \u2014 Oregon"
+  },
+  {
+    "code": 2838,
+    "name": "NAD83 / Oregon South",
+    "area": "United States \u2014 Oregon"
+  },
+  {
+    "code": 2834,
+    "name": "NAD83 / Pennsylvania North",
+    "area": "United States \u2014 Pennsylvania"
+  },
+  {
+    "code": 2835,
+    "name": "NAD83 / Pennsylvania South",
+    "area": "United States \u2014 Pennsylvania"
+  },
+  {
+    "code": 2273,
+    "name": "NAD83 / South Carolina",
+    "area": "United States \u2014 South Carolina"
+  },
+  {
+    "code": 2276,
+    "name": "NAD83 / Tennessee",
+    "area": "United States \u2014 Tennessee"
+  },
+  {
+    "code": 2279,
+    "name": "NAD83 / Texas North Central",
+    "area": "United States \u2014 Texas"
+  },
+  {
+    "code": 2280,
+    "name": "NAD83 / Texas Central",
+    "area": "United States \u2014 Texas"
+  },
+  {
+    "code": 2281,
+    "name": "NAD83 / Texas South Central",
+    "area": "United States \u2014 Texas"
+  },
+  {
+    "code": 2282,
+    "name": "NAD83 / Texas South",
+    "area": "United States \u2014 Texas"
+  },
+  {
+    "code": 2830,
+    "name": "NAD83 / Utah North",
+    "area": "United States \u2014 Utah"
+  },
+  {
+    "code": 2831,
+    "name": "NAD83 / Utah Central",
+    "area": "United States \u2014 Utah"
+  },
+  {
+    "code": 2832,
+    "name": "NAD83 / Utah South",
+    "area": "United States \u2014 Utah"
+  },
+  {
+    "code": 2290,
+    "name": "NAD83 / Virginia South",
+    "area": "United States \u2014 Virginia"
+  },
+  {
+    "code": 2287,
+    "name": "NAD83 / West Virginia North",
+    "area": "United States \u2014 West Virginia"
+  },
+  {
+    "code": 2288,
+    "name": "NAD83 / West Virginia South",
+    "area": "United States \u2014 West Virginia"
+  },
+  {
+    "code": 2868,
+    "name": "NAD83 / Wisconsin North",
+    "area": "United States \u2014 Wisconsin"
+  },
+  {
+    "code": 2869,
+    "name": "NAD83 / Wisconsin Central",
+    "area": "United States \u2014 Wisconsin"
+  },
+  {
+    "code": 2870,
+    "name": "NAD83 / Wisconsin South",
+    "area": "United States \u2014 Wisconsin"
+  },
+  {
+    "code": 2814,
+    "name": "NAD83 / Wyoming East",
+    "area": "United States \u2014 Wyoming"
+  },
+  {
+    "code": 2815,
+    "name": "NAD83 / Wyoming East Central",
+    "area": "United States \u2014 Wyoming"
+  },
+  {
+    "code": 2817,
+    "name": "NAD83 / Wyoming West",
+    "area": "United States \u2014 Wyoming"
+  },
+  {
+    "code": 3978,
+    "name": "NAD83 / Canada Atlas Lambert",
+    "area": "Canada"
+  },
+  {
+    "code": 3976,
+    "name": "NAD83 / Yukon Territorial Boundary",
+    "area": "Canada"
+  },
+  {
+    "code": 3977,
+    "name": "NAD83 / Nunavut Territorial Boundary",
+    "area": "Canada"
+  },
+  {
+    "code": 26920,
+    "name": "NAD83 / UTM zone 20N",
+    "area": "Canada"
+  },
+  {
+    "code": 26921,
+    "name": "NAD83 / UTM zone 21N",
+    "area": "Canada"
+  },
+  {
+    "code": 26922,
+    "name": "NAD83 / UTM zone 22N",
+    "area": "Canada"
+  },
+  {
+    "code": 6362,
+    "name": "NAD83 / Mexico Atlas",
+    "area": "Mexico"
+  },
+  {
+    "code": 3186,
+    "name": "NAD83 / UTM zone 11N",
+    "area": "Mexico"
+  },
+  {
+    "code": 3187,
+    "name": "NAD83 / UTM zone 12N",
+    "area": "Mexico"
+  },
+  {
+    "code": 3188,
+    "name": "NAD83 / UTM zone 13N",
+    "area": "Mexico"
+  },
+  {
+    "code": 3189,
+    "name": "NAD83 / UTM zone 14N",
+    "area": "Mexico"
+  },
+  {
+    "code": 3190,
+    "name": "NAD83 / UTM zone 15N",
+    "area": "Mexico"
+  },
+  {
+    "code": 3191,
+    "name": "NAD83 / UTM zone 16N",
+    "area": "Mexico"
+  },
+  {
+    "code": 3035,
+    "name": "ETRS89 / LAEA Europe",
+    "area": "Europe"
+  },
+  {
+    "code": 3034,
+    "name": "ETRS89 / Lambert Azimuthal Equal Area",
+    "area": "Europe"
+  },
+  {
+    "code": 25828,
+    "name": "ETRS89 / UTM zone 28N",
+    "area": "Europe"
+  },
+  {
+    "code": 25829,
+    "name": "ETRS89 / UTM zone 29N",
+    "area": "Europe"
+  },
+  {
+    "code": 25830,
+    "name": "ETRS89 / UTM zone 30N",
+    "area": "Europe"
+  },
+  {
+    "code": 25831,
+    "name": "ETRS89 / UTM zone 31N",
+    "area": "Europe"
+  },
+  {
+    "code": 25832,
+    "name": "ETRS89 / UTM zone 32N",
+    "area": "Europe"
+  },
+  {
+    "code": 25833,
+    "name": "ETRS89 / UTM zone 33N",
+    "area": "Europe"
+  },
+  {
+    "code": 25834,
+    "name": "ETRS89 / UTM zone 34N",
+    "area": "Europe"
+  },
+  {
+    "code": 25835,
+    "name": "ETRS89 / UTM zone 35N",
+    "area": "Europe"
+  },
+  {
+    "code": 25836,
+    "name": "ETRS89 / UTM zone 36N",
+    "area": "Europe"
+  },
+  {
+    "code": 25837,
+    "name": "ETRS89 / UTM zone 37N",
+    "area": "Europe"
+  },
+  {
+    "code": 3031,
+    "name": "ETRS89 / ETRS-GK",
+    "area": "Europe"
+  },
+  {
+    "code": 3043,
+    "name": "ETRS89 / LCC Europe",
+    "area": "Europe"
+  },
+  {
+    "code": 4258,
+    "name": "ETRS89",
+    "area": "Europe"
+  },
+  {
+    "code": 27700,
+    "name": "OSGB 1936 / British National Grid",
+    "area": "United Kingdom"
+  },
+  {
+    "code": 2157,
+    "name": "OSGB 1936 / UTM zone 30N",
+    "area": "United Kingdom"
+  },
+  {
+    "code": 2991,
+    "name": "OSGB 1936 / UTM zone 29N",
+    "area": "United Kingdom"
+  },
+  {
+    "code": 3855,
+    "name": "ETRS89 / UTM zone 29N",
+    "area": "United Kingdom"
+  },
+  {
+    "code": 3856,
+    "name": "ETRS89 / UTM zone 30N",
+    "area": "United Kingdom"
+  },
+  {
+    "code": 4283,
+    "name": "GDA94",
+    "area": "Australia"
+  },
+  {
+    "code": 28348,
+    "name": "GDA94 / MGA zone 48",
+    "area": "Australia"
+  },
+  {
+    "code": 28349,
+    "name": "GDA94 / MGA zone 49",
+    "area": "Australia"
+  },
+  {
+    "code": 28350,
+    "name": "GDA94 / MGA zone 50",
+    "area": "Australia"
+  },
+  {
+    "code": 28351,
+    "name": "GDA94 / MGA zone 51",
+    "area": "Australia"
+  },
+  {
+    "code": 28352,
+    "name": "GDA94 / MGA zone 52",
+    "area": "Australia"
+  },
+  {
+    "code": 28353,
+    "name": "GDA94 / MGA zone 53",
+    "area": "Australia"
+  },
+  {
+    "code": 28354,
+    "name": "GDA94 / MGA zone 54",
+    "area": "Australia"
+  },
+  {
+    "code": 28355,
+    "name": "GDA94 / MGA zone 55",
+    "area": "Australia"
+  },
+  {
+    "code": 28356,
+    "name": "GDA94 / MGA zone 56",
+    "area": "Australia"
+  },
+  {
+    "code": 3577,
+    "name": "GDA94 / Australian Albers",
+    "area": "Australia"
+  },
+  {
+    "code": 4167,
+    "name": "NZGD2000",
+    "area": "New Zealand"
+  },
+  {
+    "code": 2193,
+    "name": "NZGD2000 / NZTM",
+    "area": "New Zealand"
+  },
+  {
+    "code": 27200,
+    "name": "NZGD49 / New Zealand Map Grid",
+    "area": "New Zealand"
+  },
+  {
+    "code": 27205,
+    "name": "NZGD49 / UTM zone 39S",
+    "area": "New Zealand"
+  },
+  {
+    "code": 27206,
+    "name": "NZGD49 / UTM zone 40S",
+    "area": "New Zealand"
+  },
+  {
+    "code": 4301,
+    "name": "JGD2000",
+    "area": "Japan"
+  },
+  {
+    "code": 2452,
+    "name": "JGD2000 / UTM zone 51N",
+    "area": "Japan"
+  },
+  {
+    "code": 2453,
+    "name": "JGD2000 / UTM zone 52N",
+    "area": "Japan"
+  },
+  {
+    "code": 2454,
+    "name": "JGD2000 / UTM zone 53N",
+    "area": "Japan"
+  },
+  {
+    "code": 2455,
+    "name": "JGD2000 / UTM zone 54N",
+    "area": "Japan"
+  },
+  {
+    "code": 2456,
+    "name": "JGD2000 / UTM zone 55N",
+    "area": "Japan"
+  },
+  {
+    "code": 4615,
+    "name": "SIRGAS 2000",
+    "area": "South America"
+  },
+  {
+    "code": 29118,
+    "name": "SAD69 / UTM zone 18N",
+    "area": "South America"
+  },
+  {
+    "code": 29119,
+    "name": "SAD69 / UTM zone 19N",
+    "area": "South America"
+  },
+  {
+    "code": 29120,
+    "name": "SAD69 / UTM zone 20N",
+    "area": "South America"
+  },
+  {
+    "code": 29121,
+    "name": "SAD69 / UTM zone 21N",
+    "area": "South America"
+  },
+  {
+    "code": 29122,
+    "name": "SAD69 / UTM zone 22N",
+    "area": "South America"
+  },
+  {
+    "code": 29177,
+    "name": "SAD69 / UTM zone 17S",
+    "area": "South America"
+  },
+  {
+    "code": 29178,
+    "name": "SAD69 / UTM zone 18S",
+    "area": "South America"
+  },
+  {
+    "code": 29179,
+    "name": "SAD69 / UTM zone 19S",
+    "area": "South America"
+  },
+  {
+    "code": 29180,
+    "name": "SAD69 / UTM zone 20S",
+    "area": "South America"
+  },
+  {
+    "code": 29181,
+    "name": "SAD69 / UTM zone 21S",
+    "area": "South America"
+  },
+  {
+    "code": 29182,
+    "name": "SAD69 / UTM zone 22S",
+    "area": "South America"
+  },
+  {
+    "code": 29183,
+    "name": "SAD69 / UTM zone 23S",
+    "area": "South America"
+  },
+  {
+    "code": 29184,
+    "name": "SAD69 / UTM zone 24S",
+    "area": "South America"
+  },
+  {
+    "code": 29185,
+    "name": "SAD69 / UTM zone 25S",
+    "area": "South America"
+  }
+]

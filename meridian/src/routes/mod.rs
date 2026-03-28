@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod combine;
 pub mod convert;
+pub mod epsg;
 pub mod gis;
 pub mod health;
 pub mod package;
