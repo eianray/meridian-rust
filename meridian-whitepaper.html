@@ -153,7 +153,7 @@ code {
 <hr class="title-rule">
 
 <h2>1. Executive Summary</h2>
-<p>Meridian is a spatial data processing API designed for AI agents and developers. It exposes 29 GIS endpoints — convert, reproject, validate, repair, clip, buffer, dissolve, tile, raster, and more — behind a frictionless micropayment rail. No accounts. No API keys. No subscriptions. An agent sends a request, receives a payment prompt, signs a small USDC transaction on Base, and gets its data back.</p>
+<p>Meridian is a spatial data processing API designed for AI agents and developers. It exposes 39 GIS endpoints — convert, reproject, validate, repair, clip, buffer, dissolve, tile, raster, PLSS lookup, and more — behind a frictionless micropayment rail. No accounts. No API keys. No subscriptions. An agent sends a request, receives a payment prompt, signs a small USDC transaction on Base, and gets its data back.</p>
 <p>Meridian also exposes an Agent Skill on ClawHub, allowing OpenClaw agents to call it as a tool directly without managing payment manually.</p>
 <hr class="section-rule">
 
@@ -205,6 +205,7 @@ code {
   <tr><td><code>POST /v1/feature-to-polygon</code></td><td>Polygonize closed LineString geometries</td></tr>
   <tr><td><code>POST /v1/multipart-to-singlepart</code></td><td>Explode multipart geometries to single parts</td></tr>
   <tr><td><code>POST /v1/add-field</code></td><td>Add attribute column with optional typed default</td></tr>
+  <tr><td><code>POST /v1/calculate-geometry</code></td><td>Calculate area, length, centroid, extent, bearing, and counts (ArcGIS Pro units)</td></tr>
   <tr><td><code>POST /v1/union</code></td><td>Combine all features from two layers</td></tr>
   <tr><td><code>POST /v1/intersect</code></td><td>Spatial intersection of two layers</td></tr>
   <tr><td><code>POST /v1/difference</code></td><td>layer_a minus (layer_a ∩ layer_b)</td></tr>
@@ -225,12 +226,19 @@ code {
   <tr><td><code>POST /v1/color-relief</code></td><td>Hypsometric tint via <code>gdaldem color-relief</code></td></tr>
   <tr><td><code>POST /v1/contours</code></td><td>Contour extraction via <code>gdal_contour</code> (GeoJSON output)</td></tr>
   <tr><td><code>POST /v1/raster-calc</code></td><td>Pixel math across raster inputs via <code>gdal_calc.py</code></td></tr>
+  <tr><td><code>POST /v1/convert/raster</code></td><td>Raster format conversion</td></tr>
+  <tr><td><code>POST /v1/mosaic</code></td><td>Merge multiple rasters into a single mosaic</td></tr>
+  <tr><td><code>POST /v1/raster-warp</code></td><td>Reproject/warp raster to any CRS via <code>gdalwarp</code></td></tr>
+  <tr><td><code>POST /v1/reclassify</code></td><td>Reclassify raster pixel values by range mapping</td></tr>
+  <tr><td><code>POST /v1/package/gdb</code></td><td>Package one or more vector layers into a <code>.gdb</code></td></tr>
 </table>
 
-<h3>Info (free)</h3>
+<h3>Reference (free)</h3>
 <table>
   <tr><th>Endpoint</th><th>Description</th></tr>
   <tr><td><code>GET /v1/health</code></td><td>Service health and version</td></tr>
+  <tr><td><code>GET /v1/epsg/search</code></td><td>Search bundled EPSG registry by name or code</td></tr>
+  <tr><td><code>POST /v1/plss/lookup</code></td><td>PLSS section polygon lookup by legal description (AK)</td></tr>
 </table>
 <hr class="section-rule">
 
@@ -254,7 +262,7 @@ code {
 <hr class="section-rule">
 
 <h2>7. Agent Skill</h2>
-<p>Meridian publishes an Agent Skill on ClawHub. Any OpenClaw agent that installs the skill (<code>clawhub install meridian</code>) gains full knowledge of the API endpoint surface, payment flow, and tool descriptions — no manual setup required. The skill covers all 29 endpoints and handles the x402 payment negotiation automatically.</p>
+<p>Meridian publishes an Agent Skill on ClawHub. Any OpenClaw agent that installs the skill (<code>clawhub install meridian</code>) gains full knowledge of the API endpoint surface, payment flow, and tool descriptions — no manual setup required. The skill covers all 39 endpoints and handles the x402 payment negotiation automatically.</p>
 <hr class="section-rule">
 
 <h2>8. Production Validation</h2>
@@ -275,7 +283,9 @@ code {
   <li>Rust/Axum rewrite — full GIS parity with legacy Python service</li>
   <li>x402 / Base USDC payment flow live and production-validated</li>
   <li>Coinbase CDP managed facilitator (v0.5.0, 2026-03-17)</li>
-  <li>DEM / raster endpoints live (hillshade, slope, aspect, roughness, color-relief, contours, raster-calc)</li>
+  <li>DEM / raster endpoints live (hillshade, slope, aspect, roughness, color-relief, contours, raster-calc, raster-warp, mosaic, convert/raster, reclassify)</li>
+  <li>Reference endpoints: EPSG registry search, PLSS section lookup (AK)</li>
+  <li>GDB packaging via /v1/package/gdb</li>
   <li>22/22 production acceptance pass + 100-transaction stress test</li>
   <li>Agent Skill published on ClawHub</li>
   <li>OpenAPI docs live at meridianapi.nodeapi.ai/docs</li>

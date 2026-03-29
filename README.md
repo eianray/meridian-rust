@@ -71,6 +71,7 @@ The Rust service and the Python service are close in shape, but not at full beha
 | `POST /v1/feature-to-polygon` | Polygonize closed LineString geometries |
 | `POST /v1/multipart-to-singlepart` | Explode multipart geometries to single parts |
 | `POST /v1/add-field` | Add attribute column with optional typed default |
+| `POST /v1/calculate-geometry` | Calculate area, length, centroid, extent, bearing, and counts (ArcGIS Pro units) |
 
 ### Topology (two-input)
 | Endpoint | Description |
@@ -102,6 +103,17 @@ The Rust service and the Python service are close in shape, but not at full beha
 | `POST /v1/contours` | Contour extraction via `gdal_contour` (GeoJSON output) |
 | `POST /v1/raster-calc` | Pixel math across raster inputs via `gdal_calc.py` |
 | `POST /v1/raster-to-vector` | Raster polygonization to GeoJSON polygons via `GDALPolygonize` |
+| `POST /v1/convert/raster` | Raster format conversion |
+| `POST /v1/mosaic` | Merge multiple rasters into a single mosaic |
+| `POST /v1/raster-warp` | Reproject/warp raster to any CRS via `gdalwarp` |
+| `POST /v1/reclassify` | Reclassify raster pixel values by range mapping |
+| `POST /v1/package/gdb` | Package one or more vector layers into a `.gdb` |
+
+### Reference (free)
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/epsg/search` | Search bundled EPSG registry by name or code |
+| `POST /v1/plss/lookup` | PLSS section polygon lookup by legal description (AK) |
 
 ### Batch
 | Endpoint | Description |
