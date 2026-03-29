@@ -8,7 +8,7 @@ use meridian::AppState;
 
 use axum::{
     middleware as axum_middleware,
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -53,6 +53,7 @@ use gis::{
     paths(
         routes::health::health,
         routes::epsg::epsg_search,
+        routes::plss::plss_lookup,
         gis::reproject::reproject,
         gis::buffer::buffer,
         gis::clip::clip,
@@ -75,6 +76,8 @@ use gis::{
         schemas(
             HealthResponse,
             routes::epsg::EpsgEntry,
+            routes::plss::PlssLookupParams,
+            routes::plss::PlssLookupResponse,
             GeoJsonOutput,
             PaymentRequired,
             BatchResponse,
@@ -169,6 +172,7 @@ fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>) ->
         // Versioned routes
         .route("/v1/health", get(health))
         .route("/v1/epsg/search", get(routes::epsg::epsg_search))
+        .route("/v1/plss/lookup", post(routes::plss::plss_lookup))
         // Legacy (unversioned) alias
         .route("/health", get(health))
         // GIS endpoints (with rate limiting)

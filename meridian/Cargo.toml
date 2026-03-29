@@ -15,6 +15,7 @@ path = "src/main.rs"
 # GIS
 gdal = { version = "0.19", features = ["bindgen"] }
 gdal-sys = "0.12"
+geo = "0.32"
 governor = { version = "0.6", features = ["dashmap"] }
 
 # File handling
