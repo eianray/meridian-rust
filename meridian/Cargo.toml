@@ -51,6 +51,9 @@ config = "0.14"
 # UUIDs (request IDs)
 uuid = { version = "1", features = ["v4"] }
 
+# Binary data handling
+bytes = "1"
+
 # Metrics / observability
 metrics = "0.21"
 metrics-exporter-prometheus = "0.12"

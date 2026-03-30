@@ -121,7 +121,7 @@ pub async fn pdf_rasterize(
 }
 
 async fn render_pdf_pages(pdf_bytes: &[u8], dpi: u32) -> Result<Vec<PageRender>, AppError> {
-    let id = Uuid::now_v7().to_string();
+    let id = Uuid::new_v4().to_string();
 
     let pdf_path = PathBuf::from(format!("/tmp/{id}.pdf"));
     let prefix = format!("/tmp/{id}_page");
