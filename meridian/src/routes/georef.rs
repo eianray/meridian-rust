@@ -4,8 +4,9 @@
 use axum::{extract::Extension, http::HeaderMap, response::Response, routing::post, Router};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{fs::File, io::Write, process::Command};
+use tokio::time::timeout;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -17,6 +18,8 @@ use crate::{
     AppState,
 };
 use crate::gis::reproject::payment_gate;
+
+const OP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Deserialize, ToSchema)]
 pub struct GCPInput {
@@ -95,6 +98,12 @@ pub async fn raster_georeference(
     }
 
     let image_bytes = image_bytes.ok_or_else(|| AppError::BadRequest("Missing required field: file".into()))?;
+
+    const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024; // 50 MB
+    if image_bytes.len() > MAX_IMAGE_BYTES {
+        return Err(AppError::BadRequest("Image too large (max 50 MB)".into()));
+    }
+
     let gcps_json = gcps_json.ok_or_else(|| AppError::BadRequest("Missing required field: gcps".into()))?;
 
     let gcps: Vec<GCPInput> = serde_json::from_str(&gcps_json)
@@ -117,10 +126,11 @@ pub async fn raster_georeference(
 
     let uuid = Uuid::new_v4().to_string();
     let request_id_clone = request_id.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
         run_georef(&uuid, &image_bytes, &gcps, &request_id_clone, &output_crs)
-    })
+    }))
     .await
+    .map_err(|_| AppError::Timeout)?
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
     .map_err(|e| e)?;
 
@@ -165,8 +175,13 @@ fn run_georef(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input file: {e}")))?;
     drop(input_file);
 
-    let tmp = tempfile::TempDir::new()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+    let tmp = match tempfile::TempDir::new() {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&input_path);
+            return Err(AppError::Internal(anyhow::anyhow!("TempDir: {e}")));
+        }
+    };
 
     let tmp_gtiff = tmp.path().join("georef_tmp.tif");
     let out_path = format!("/tmp/georef_{}_{}.tif", request_id.replace("-", "_"), std::process::id());
@@ -189,8 +204,9 @@ fn run_georef(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("gdal_translate exec: {e}")))?;
 
     if !translate_status.success() {
-        // Clean up input
+        // Clean up input and output
         let _ = std::fs::remove_file(&input_path);
+        let _ = std::fs::remove_file(&out_path);
         return Err(AppError::Internal(anyhow::anyhow!(
             "gdal_translate failed with status: {}", translate_status
         )));
@@ -198,12 +214,17 @@ fn run_georef(
 
     if !tmp_gtiff.exists() {
         let _ = std::fs::remove_file(&input_path);
+        let _ = std::fs::remove_file(&out_path);
         return Err(AppError::Internal(anyhow::anyhow!(
             "gdal_translate completed but temp output not created"
         )));
     }
 
     // Step 2: gdalwarp to create COG from the GCP-affixed TIFF
+    // Allow only alphanumeric, colon, plus, hyphen (covers EPSG:XXXX, +proj=..., etc.)
+    if !output_crs.is_empty() && !output_crs.chars().all(|c| c.is_alphanumeric() || ":/+=_-. ".contains(c)) {
+        return Err(AppError::BadRequest("Invalid output_crs value".into()));
+    }
     let t_srs = if output_crs.is_empty() || output_crs == "EPSG:4326" {
         "EPSG:4326"
     } else {

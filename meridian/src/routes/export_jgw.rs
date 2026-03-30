@@ -6,7 +6,8 @@ use axum::{extract::Extension, http::HeaderMap, routing::post, Json, Router};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::time::timeout;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -18,6 +19,8 @@ use crate::{
     AppState,
 };
 use crate::gis::reproject::payment_gate;
+
+const OP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Deserialize, ToSchema)]
 pub struct GCPInput {
@@ -123,10 +126,11 @@ pub async fn export_jgw(
     payment_gate("export-jgw", file_size, price, &request_id, &headers, &state).await?;
 
     let uuid = Uuid::new_v4().to_string();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
         run_export_jgw(&uuid, &image_bytes, &gcps, &output_crs)
-    })
+    }))
     .await
+    .map_err(|_| AppError::Timeout)?
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
     .map_err(|e| e)?;
 

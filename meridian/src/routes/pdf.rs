@@ -152,8 +152,9 @@ async fn render_pdf_pages(pdf_bytes: &[u8], dpi: u32) -> Result<Vec<PageRender>,
 
     // Collect rendered page files
     let mut page_files: Vec<PathBuf> = Vec::new();
-    for entry in std::fs::read_dir("/tmp")
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read /tmp: {e}")))?
+    let read_result = std::fs::read_dir("/tmp").map_err(|e| AppError::Internal(anyhow::anyhow!("Read /tmp: {e}")));
+    let _ = std::fs::remove_file(&pdf_path); // cleanup regardless
+    for entry in read_result?
     {
         let entry = entry.map_err(|e| AppError::Internal(anyhow::anyhow!("Read dir entry: {e}")))?;
         let path = entry.path();
