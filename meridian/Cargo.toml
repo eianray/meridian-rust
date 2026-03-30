@@ -59,6 +59,15 @@ metrics-exporter-prometheus = "0.12"
 anyhow = "1"
 thiserror = "1"
 
+# PDF rendering
+pdfium-render = "0.8"
+
+# Image processing
+image = "0.25"
+
+# EXIF reading for JPEG dimensions
+kamadak-exif = "0.6"
+
 # HTTP client (Solana RPC calls)
 reqwest = { version = "0.11", features = ["json"] }
 

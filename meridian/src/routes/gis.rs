@@ -5,7 +5,10 @@ use crate::routes::{
     batch::batch,
     combine::{append, merge, spatial_join},
     convert::convert,
+    export_jgw::export_jgw,
+    georef::raster_georeference,
     package::package_gdb,
+    pdf::pdf_rasterize,
     raster::{aspect, color_relief, contours, hillshade, mosaic, raster_calc, raster_convert, raster_to_vector, raster_warp, roughness, slope},
     reclassify::reclassify,
     schema::{repair, schema, validate},
@@ -69,4 +72,9 @@ pub fn router() -> Router {
         .route("/v1/reclassify", post(reclassify))
         // Package GDB
         .route("/v1/package/gdb", post(package_gdb))
+        // DrawBridge utility endpoints (free, no payment)
+        .route("/v1/pdf/rasterize", post(pdf_rasterize))
+        // DrawBridge GIS endpoints
+        .route("/v1/raster-georeference", post(raster_georeference))
+        .route("/v1/export/jgw", post(export_jgw))
 }
