@@ -147,8 +147,6 @@ pub async fn raster_georeference(
 
 struct GeorefResult {
     cog_url: String,
-    width: u32,
-    height: u32,
 }
 
 fn run_georef(
@@ -242,16 +240,8 @@ fn run_georef(
         )));
     }
 
-    // Get dimensions using GDAL Rust
-    let ds = gdal::Dataset::open(&out_path)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Open output COG: {e}")))?;
-    let (width, height) = ds.raster_size();
-    drop(ds);
-
     Ok(GeorefResult {
         cog_url: out_path,
-        width: width as u32,
-        height: height as u32,
     })
 }
 

@@ -276,6 +276,12 @@ pub(crate) async fn payment_gate(
     headers: &HeaderMap,
     state: &AppState,
 ) -> Result<(), AppError> {
+    // ── X402_ENABLED gate ─────────────────────────────────────────────────────
+    // When X402_ENABLED is not "true", skip all payment checks entirely.
+    if std::env::var("X402_ENABLED").unwrap_or_default() != "true" {
+        return Ok(());
+    }
+
     let x_payment = headers
         .get("x-payment")
         .and_then(|v| v.to_str().ok())
