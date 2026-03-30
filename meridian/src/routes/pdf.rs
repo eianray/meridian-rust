@@ -1,11 +1,15 @@
-//! POST /v1/pdf/rasterize — Render PDF pages to JPEG using pdfium-render.
+//! POST /v1/pdf/rasterize — Render PDF pages to JPEG using pdftoppm (poppler-utils).
 //! This is a free utility endpoint (no x402 charge) used by the DrawBridge thin client.
 
 use axum::{extract::Extension, http::HeaderMap, Json};
-use pdfium_render::prelude::*;
+use base64::Engine;
 use serde::Serialize;
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::Instant;
+use tokio::fs;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     error::AppError,
@@ -13,6 +17,7 @@ use crate::{
 };
 
 const MAX_PDF_BYTES: usize = 50 * 1024 * 1024; // 50 MB
+const DEFAULT_DPI: u32 = 150;
 
 #[derive(Serialize, ToSchema)]
 pub struct PdfRasterizeResponse {
@@ -22,27 +27,30 @@ pub struct PdfRasterizeResponse {
 
 #[derive(Serialize, ToSchema)]
 pub struct PageRender {
-    pub page_num: usize,
-    pub width_px: u32,
-    pub height_px: u32,
-    pub jpeg_url: String,
+    /// 1-based page number
+    pub page: usize,
+    /// Image width in pixels
+    pub width: u32,
+    /// Image height in pixels
+    pub height: u32,
+    /// Base64-encoded JPEG image data
+    pub data: String,
 }
 
 /// POST /v1/pdf/rasterize
 ///
-/// Accepts a PDF file upload and renders each page to a JPEG.
+/// Accepts a PDF file upload and renders each page to a JPEG using pdftoppm.
 ///
 /// **Input (multipart/form-data):**
-/// - `pdf` — PDF file (max 50 MB)
-/// - `dpi` — integer, default 150
-/// - `page` — optional integer (1-based page number). If omitted, renders all pages.
+/// - `file` — PDF file (max 50 MB)
+/// - `dpi` — integer, default 150 (clamped 72–600)
 ///
 /// **Output (JSON):**
 /// ```json
 /// {
 ///   "request_id": "...",
 ///   "pages": [
-///     { "page_num": 1, "width_px": 800, "height_px": 600, "jpeg_url": "/tmp/meridian_page1.jpg" }
+///     { "page": 1, "width": 800, "height": 600, "data": "<base64_jpeg>" }
 ///   ]
 /// }
 /// ```
@@ -66,8 +74,7 @@ pub async fn pdf_rasterize(
     let t0 = Instant::now();
 
     let mut pdf_bytes: Option<Vec<u8>> = None;
-    let mut dpi: u32 = 150;
-    let mut single_page: Option<usize> = None;
+    let mut dpi: u32 = DEFAULT_DPI;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -75,12 +82,12 @@ pub async fn pdf_rasterize(
         .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
     {
         match field.name() {
-            Some("pdf") => {
+            Some("file") => {
                 let mut buf: Vec<u8> = Vec::new();
                 while let Some(chunk) = field
                     .chunk()
                     .await
-                    .map_err(|e| AppError::BadRequest(format!("Error reading pdf: {e}")))?
+                    .map_err(|e| AppError::BadRequest(format!("Error reading file: {e}")))?
                 {
                     if buf.len() + chunk.len() > MAX_PDF_BYTES {
                         return Err(AppError::PayloadTooLarge);
@@ -94,35 +101,16 @@ pub async fn pdf_rasterize(
                     .text()
                     .await
                     .map_err(|e| AppError::BadRequest(format!("dpi: {e}")))?;
-                dpi = v.trim().parse().unwrap_or(150);
+                dpi = v.trim().parse().unwrap_or(DEFAULT_DPI);
                 dpi = dpi.clamp(72, 600);
-            }
-            Some("page") => {
-                let v = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::BadRequest(format!("page: {e}")))?;
-                if !v.trim().is_empty() {
-                    single_page = Some(
-                        v.trim()
-                            .parse::<usize>()
-                            .map_err(|_| AppError::BadRequest("page must be a positive integer".into()))?,
-                    );
-                }
             }
             _ => {}
         }
     }
 
-    let pdf_bytes = pdf_bytes.ok_or_else(|| AppError::BadRequest("Missing 'pdf' field".into()))?;
+    let pdf_bytes = pdf_bytes.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
 
-    // Render in a blocking thread
-    let request_id_for_render = request_id.clone();
-    let pages = tokio::task::spawn_blocking(move || {
-        render_pdf_pages(&pdf_bytes, dpi, single_page, &request_id_for_render)
-    })
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))??;
+    let pages = render_pdf_pages(&pdf_bytes, dpi).await?;
 
     tracing::info!(pages = pages.len(), elapsed_ms = t0.elapsed().as_millis(), "pdf_rasterize ok");
 
@@ -132,91 +120,147 @@ pub async fn pdf_rasterize(
     }))
 }
 
-fn render_pdf_pages(
-    pdf_bytes: &[u8],
-    dpi: u32,
-    single_page: Option<usize>,
-    request_id: &str,
-) -> Result<Vec<PageRender>, AppError> {
-    // Initialize pdfium — try system library first
-    let bindings = Pdfium::bind_to_system_library()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to load pdfium: {e}")))?;
+async fn render_pdf_pages(pdf_bytes: &[u8], dpi: u32) -> Result<Vec<PageRender>, AppError> {
+    let id = Uuid::now_v7().to_string();
 
-    let pdfium = Pdfium::new(bindings);
+    let pdf_path = PathBuf::from(format!("/tmp/{id}.pdf"));
+    let prefix = format!("/tmp/{id}_page");
 
-    let document = pdfium
-        .load_pdf_from_byte_slice(pdf_bytes, None)
-        .map_err(|e| AppError::BadRequest(format!("Invalid PDF: {e}")))?;
+    // Write uploaded PDF to temp file
+    fs::write(&pdf_path, pdf_bytes)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write temp PDF: {e}")))?;
 
-    let page_count = document.pages().len() as usize;
-    if page_count == 0 {
-        return Err(AppError::BadRequest("PDF has no pages".into()));
+    // Run pdftoppm to render all pages as JPEGs
+    // pdftoppm -r <dpi> -jpeg -jpegopt quality=85 <pdf_path> <prefix>
+    // produces: <prefix>-1.jpg, <prefix>-2.jpg, ...
+    let output = Command::new("pdftoppm")
+        .args([
+            "-r", &dpi.to_string(),
+            "-jpeg",
+            "-jpegopt", "quality=85",
+            pdf_path.to_str().unwrap(),
+            &prefix,
+        ])
+        .output()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("pdftoppm spawn: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Internal(anyhow::anyhow!("pdftoppm failed: {stderr}")));
     }
 
-    // Determine which pages to render
-    let page_indices: Vec<u16> = match single_page {
-        Some(p) if p >= 1 && p <= page_count => vec![(p - 1) as u16],
-        Some(p) => {
-            return Err(AppError::BadRequest(format!(
-                "Page {p} out of range (PDF has {page_count} pages)"
-            )));
-        }
-        None => (0..document.pages().len()).collect(),
-    };
-
-    let scale = dpi as f32 / 72.0; // 72 DPI is the PDF default
-    let mut pages = Vec::with_capacity(page_indices.len());
-
-    for &page_idx in &page_indices {
-        let page = match document.pages().get(page_idx) {
-            Ok(p) => p,
-            Err(e) => return Err(AppError::Internal(anyhow::anyhow!("Page {}: {}", page_idx, e))),
+    // Collect rendered page files
+    let mut page_files: Vec<PathBuf> = Vec::new();
+    for entry in std::fs::read_dir("/tmp")
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read /tmp: {e}")))?
+    {
+        let entry = entry.map_err(|e| AppError::Internal(anyhow::anyhow!("Read dir entry: {e}")))?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
         };
-
-        let width_pt = page.width().value;
-        let height_pt = page.height().value;
-        let width_px = (width_pt * scale).round() as u32;
-        let height_px = (height_pt * scale).round() as u32;
-
-        // Clamp to reasonable size
-        let width_px = width_px.clamp(1, 8192);
-        let height_px = height_px.clamp(1, 8192);
-
-        let render_config = PdfRenderConfig::new()
-            .set_fixed_size(width_px as i32, height_px as i32)
-            .render_form_data(false);
-
-        let bitmap = page
-            .render_with_config(&render_config)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Render page {}: {e}", page_idx)))?;
-
-        // Convert to JPEG
-        let dynamic_image = bitmap.as_image();
-
-        let mut jpeg_bytes: Vec<u8> = Vec::new();
-        {
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 85);
-            encoder.encode_image(&dynamic_image)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("JPEG encode: {e}")))?;
+        if name.starts_with(&format!("{id}_page-")) && name.ends_with(".jpg") {
+            page_files.push(path);
         }
+    }
 
-        // Write to /tmp
-        let filename = format!("/tmp/meridian_{}_{}_{}x{}.jpg",
-            request_id.replace("-", "_"),
-            page_idx + 1,
-            width_px,
-            height_px,
-        );
-        std::fs::write(&filename, &jpeg_bytes)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Write JPEG: {e}")))?;
+    if page_files.is_empty() {
+        return Err(AppError::Internal(anyhow::anyhow!("pdftoppm produced no output files")));
+    }
+
+    // Sort by page number (filename format: <id>_page-<N>.jpg)
+    page_files.sort_by(|a, b| {
+        let num_a = a.file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.split('-').nth(1))
+            .and_then(|n| n.strip_suffix(".jpg"))
+            .unwrap_or("0")
+            .parse::<usize>()
+            .unwrap_or(0);
+        let num_b = b.file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.split('-').nth(1))
+            .and_then(|n| n.strip_suffix(".jpg"))
+            .unwrap_or("0")
+            .parse::<usize>()
+            .unwrap_or(0);
+        num_a.cmp(&num_b)
+    });
+
+    let mut pages = Vec::with_capacity(page_files.len());
+
+    for path in &page_files {
+        let jpeg_bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Read JPEG: {e}")))?;
+
+        let (width, height) = read_jpeg_dimensions(&jpeg_bytes)
+            .unwrap_or((0, 0));
+
+        let data = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+
+        let page_num = path.file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.split('-').nth(1))
+            .and_then(|n| n.strip_suffix(".jpg"))
+            .unwrap_or("0")
+            .parse::<usize>()
+            .unwrap_or(0);
 
         pages.push(PageRender {
-            page_num: page_idx as usize + 1,
-            width_px,
-            height_px,
-            jpeg_url: filename,
+            page: page_num,
+            width,
+            height,
+            data,
         });
     }
 
+    // Clean up temp files
+    let _ = fs::remove_file(&pdf_path).await;
+    for path in &page_files {
+        let _ = fs::remove_file(path).await;
+    }
+
     Ok(pages)
+}
+
+/// Read JPEG dimensions from bytes without the `image` crate.
+/// Format: SOI (0xFF 0xD8) → segment(s) → SOF0 (0xFF 0xC0) → length → precision → height width
+fn read_jpeg_dimensions(jpeg_bytes: &[u8]) -> Option<(u32, u32)> {
+    if jpeg_bytes.len() < 10 {
+        return None;
+    }
+    if jpeg_bytes[0] != 0xFF || jpeg_bytes[1] != 0xD8 {
+        return None; // Not a JPEG
+    }
+
+    let mut i = 2;
+    while i < jpeg_bytes.len() - 8 {
+        if jpeg_bytes[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+        let marker = jpeg_bytes[i + 1];
+
+        // SOF0, SOF1, SOF2 markers all have the same structure
+        if matches!(marker, 0xC0 | 0xC1 | 0xC2) {
+            let length = ((jpeg_bytes[i + 2] as usize) << 8) | (jpeg_bytes[i + 3] as usize);
+            if length < 9 || i + 8 >= jpeg_bytes.len() {
+                return None;
+            }
+            let height = ((jpeg_bytes[i + 5] as u32) << 8) | (jpeg_bytes[i + 6] as u32);
+            let width = ((jpeg_bytes[i + 7] as u32) << 8) | (jpeg_bytes[i + 8] as u32);
+            return Some((width, height));
+        }
+
+        // Skip to next marker
+        if i + 3 >= jpeg_bytes.len() {
+            break;
+        }
+        let segment_len = ((jpeg_bytes[i + 2] as usize) << 8) | (jpeg_bytes[i + 3] as usize);
+        i += 2 + segment_len;
+    }
+
+    None
 }

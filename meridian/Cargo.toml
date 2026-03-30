@@ -59,9 +59,6 @@ metrics-exporter-prometheus = "0.12"
 anyhow = "1"
 thiserror = "1"
 
-# PDF rendering
-pdfium-render = "0.8"
-
 # Image processing
 image = "0.25"
 
