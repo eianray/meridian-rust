@@ -70,6 +70,7 @@ pub fn do_feature_to_point(geojson_str: String) -> Result<Value, AppError> {
 // ── Feature to Line ────────────────────────────────────────────────────────────
 
 /// Extract polygon boundary as line coords. For points/lines, pass through.
+#[allow(non_upper_case_globals)]
 fn geom_to_boundary_json(geom: &Geometry) -> Option<Value> {
     use gdal::vector::OGRwkbGeometryType::*;
     let gt = geom.geometry_type();
@@ -121,6 +122,7 @@ pub fn do_feature_to_line(geojson_str: String) -> Result<Value, AppError> {
 
 // ── Feature to Polygon ─────────────────────────────────────────────────────────
 
+#[allow(non_upper_case_globals)]
 pub fn do_feature_to_polygon(geojson_str: String) -> Result<Value, AppError> {
     use gdal::vector::OGRwkbGeometryType::*;
     let fc: Value = serde_json::from_str(&geojson_str)
@@ -151,7 +153,7 @@ pub fn do_feature_to_polygon(geojson_str: String) -> Result<Value, AppError> {
                             "type": "Polygon",
                             "coordinates": [coords]
                         });
-                        let mut new_feat = serde_json::json!({
+                        let new_feat = serde_json::json!({
                             "type": "Feature",
                             "properties": feat.get("properties").cloned().unwrap_or(serde_json::json!({})),
                             "geometry": poly_json
@@ -220,6 +222,7 @@ pub fn do_multipart_to_singlepart(geojson_str: String) -> Result<Value, AppError
     }))
 }
 
+#[allow(non_upper_case_globals)]
 fn explode_geometry(geom: &Geometry) -> Result<Vec<Geometry>, AppError> {
     use gdal::vector::OGRwkbGeometryType::*;
     let gt = geom.geometry_type();
@@ -232,7 +235,7 @@ fn explode_geometry(geom: &Geometry) -> Result<Vec<Geometry>, AppError> {
             let count = geom.geometry_count();
             let mut parts = Vec::with_capacity(count);
             for i in 0..count {
-                let sub = unsafe { geom.get_geometry(i) };
+                let sub = geom.get_geometry(i);
                 let json = sub.json()
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("Sub geom JSON: {e}")))?;
                 let cloned = Geometry::from_geojson(&json)

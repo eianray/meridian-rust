@@ -1,0 +1,186 @@
+digraph DrawBridgeFlow {
+    graph [
+        rankdir=TB
+        fontname="Helvetica Neue"
+        fontsize=13
+        pad=0.6
+        splines=ortho
+        nodesep=0.6
+        ranksep=0.8
+        bgcolor="white"
+        label="DrawBridge — Thin Client Architecture\napp.drawbridgegis.com · Cloudflare Pages · Railway · Meridian GIS"
+        labelloc=t
+        labeljust=c
+        fontsize=16
+    ]
+    node [fontname="Helvetica Neue" fontsize=12 style=filled shape=box margin="0.2,0.12"]
+    edge [fontname="Helvetica Neue" fontsize=11]
+
+    // ── LEGEND ───────────────────────────────────────────────────────────────
+    subgraph cluster_legend {
+        label="Legend"
+        style=filled fillcolor="#f8f9fa" color="#6b7280"
+        fontsize=12
+
+        l1 [label="Actor\n(User / Browser)" shape=oval fillcolor="#dbeafe" color="#3b82f6" width=1.6]
+        l2 [label="Cloudflare\n(Edge Runtime)" fillcolor="#f0f9ff" color="#0369a1" width=1.6]
+        l3 [label="Railway\n(App Host)" fillcolor="#f3f4f6" color="#6b7280" width=1.6]
+        l4 [label="External\nService" fillcolor="#fef9c3" color="#ca8a04" width=1.6]
+        l5 [label="Meridian API\n(Hetzner GIS)" fillcolor="#dcfce7" color="#16a34a" width=1.6]
+        l6 [label="Result\nOutput" fillcolor="#f3f4f6" color="#6b7280" width=1.6]
+
+        l1 -> l2 -> l3 -> l4 -> l5 -> l6 [style=invis]
+    }
+
+    // ── Actors ──────────────────────────────────────────────────────────────
+    subgraph cluster_actors {
+        label="Actors"
+        style=dashed color="#aaaaaa"
+        fontsize=12
+
+        user [label="User / Browser\n(app.drawbridgegis.com)" shape=oval fillcolor="#dbeafe" color="#3b82f6"]
+    }
+
+    // ── Step 1: Upload ──────────────────────────────────────────────────────
+    subgraph cluster_step1 {
+        label="Step 1 — User Uploads Scanned PDF"
+        style=rounded color="#e5e7eb"
+        upload [label="User selects PDF\n(audit map, scanned as-built, etc.)\nMax 40MB" fillcolor="#fef9c3" color="#ca8a04"]
+        file_type [label="Detect file type:\n• scanned PDF → rasterize\n• geospatial PDF → extract georeference\n• TIFF/JPEG → validate format" fillcolor="#fef9c3" color="#ca8a04" shape=note]
+    }
+
+    // ── Step 2: Payment ─────────────────────────────────────────────────────
+    subgraph cluster_step2 {
+        label="Step 2 — Payment (Stripe)"
+        style=rounded color="#e5e7eb"
+        stripe_checkout [label="Create Stripe Checkout Session\n$1.00 USD per page\n(price: 100 cents, unit_amount)" fillcolor="#ede9fe" color="#7c3aed"]
+        stripe_redirect [label="Redirect to Stripe Checkout\n(PCI-compliant hosted page)" fillcolor="#ede9fe" color="#7c3aed"]
+        stripe_webhook [label="Stripe webhook:\ncheckout.session.completed\n→ proceed to processing" fillcolor="#f3e8ff" color="#9333ea"]
+        stripe_confirm [label="Payment confirmed\nsession_id stored in\nPERSISTENT_DISPLAY_DIR" fillcolor="#f3e8ff" color="#9333ea"]
+    }
+
+    // ── Step 3: Processing ──────────────────────────────────────────────────
+    subgraph cluster_step3 {
+        label="Step 3 — GIS Processing (Meridian API)"
+        style=rounded color="#e5e7eb"
+
+        submit_job [label="POST file to Meridian API\n/raster-calc with PDF input\nX-Mcp-Key: API key in CF Worker header\n(no key exposed to browser)" fillcolor="#dcfce7" color="#16a34a"]
+
+        meridian_internal [label="Meridian API — Hetzner ARM64"
+            fillcolor="#f0fdf4" color="#16a34a" fontsize=11]
+
+        pdfium_render [label="pdfium_render (Rust)\nrasterize PDF pages → TIFF\n300 DPI · preserve colors" fillcolor="#bbf7d0" color="#15803d" width=2.2]
+
+        georef [label="GCP-based georeferencing\n(world file .tfw output)\nassigns coordinate system to raster" fillcolor="#bbf7d0" color="#15803d" width=2.2]
+
+        raster_export [label="Export raster\nJPEG + GeoTIFF + world file\nZIP into session folder" fillcolor="#d1fae5" color="#059669" width=2.2]
+
+        rm_disp [label="CF Worker polls\nPERSISTENT_DISPLAY_DIR\nfor result JSON" fillcolor="#dcfce7" color="#16a34a"]
+    }
+
+    // ── Step 4: Notification ────────────────────────────────────────────────
+    subgraph cluster_step4 {
+        label="Step 4 — Notification (Resend)"
+        style=rounded color="#e5e7eb"
+        resend_trigger [label="Meridian → CF Worker\nresult ready callback" fillcolor="#fef3c7" color="#d97706"]
+        resend_email [label="Resend API\nSend completion email\nto customer address\n(no payment vars in template)" fillcolor="#fef3c7" color="#d97706" shape=note]
+    }
+
+    // ── Step 5: Download ────────────────────────────────────────────────────
+    subgraph cluster_step5 {
+        label="Step 5 — User Downloads Result"
+        style=rounded color="#e5e7eb"
+        result_ready [label="CF Worker returns\nsigned download URL\n(JPEG / GeoTIFF + world file)" fillcolor="#dbeafe" color="#3b82f6"]
+        user_download [label="User downloads\nfrom Railway ephemeral storage\n(7-day TTL, auto-pruned)" fillcolor="#dbeafe" color="#3b82f6"]
+    }
+
+    // ── CF Worker ───────────────────────────────────────────────────────────
+    subgraph cluster_cfworker {
+        label="Cloudflare Worker (functions/api/[[path]].js)"
+        style=filled fillcolor="#f0f9ff" color="#0369a1"
+        fontsize=11
+
+        cf_proxy [label="API proxy: forwards /api/*\nto Meridian, injects X-Mcp-Key\nBrowser never sees API key" fillcolor="#e0f2fe" color="#0369a1" width=2.4]
+        cf_stripe [label="Stripe checkout session\ncreate + webhook handler\n(return URL → results)" fillcolor="#e0f2fe" color="#0369a1" width=2.4]
+        cf_resend [label="Resend email trigger\non job completion\n(clean HTML template)" fillcolor="#e0f2fe" color="#0369a1" width=2.4]
+        cf_railway [label="Railway app proxy\nserves results from\nPERSISTENT_DISPLAY_DIR" fillcolor="#bae6fd" color="#0284c7" width=2.4]
+    }
+
+    // ── Railway App ────────────────────────────────────────────────────────
+    subgraph cluster_railway {
+        label="Railway — drawbridge-app"
+        style=filled fillcolor="#f3f4f6" color="#6b7280"
+        fontsize=11
+
+        railway_upload [label="Flask app receives\nfile upload, forwards to\nPERSISTENT_DISPLAY_DIR" fillcolor="#f9fafb" color="#6b7280"]
+        railway_rotate [label="Rotation fix applied\n(rotation sign bug in\n_transform_coord() — FIXED)" fillcolor="#f9fafb" color="#6b7280"]
+        railway_storage [label="PERSISTENT_DISPLAY_DIR\nSession-scoped folders\n7-day TTL auto-prune\n(startup + hourly cron)" fillcolor="#f1f5f9" color="#475569"]
+    }
+
+    // ── External Services ───────────────────────────────────────────────────
+    subgraph cluster_external {
+        label="External Services"
+        style=filled fillcolor="#fefce8" color="#ca8a04"
+        fontsize=11
+
+        stripe_ext [label="Stripe\nstripe.com\nPCI-compliant payment" fillcolor="#fef9c3" color="#ca8a04"]
+        resend_ext [label="Resend\nresend.com\nTransactional email" fillcolor="#fef9c3" color="#ca8a04"]
+        meridian_ext [label="Meridian API\nmeridianapi.nodeapi.ai\nx402 / Base USDC" fillcolor="#dcfce7" color="#16a34a"]
+    }
+
+    // ── Result Storage ──────────────────────────────────────────────────────
+    subgraph cluster_storage {
+        label="Result Storage"
+        style=dashed color="#6b7280"
+        fontsize=11
+
+        result_jpeg [label="JPEG export\n(rotated, line layer applied)" fillcolor="#f9fafb" color="#6b7280"]
+        result_geotiff [label="GeoTIFF\n(georeferenced raster)" fillcolor="#f9fafb" color="#6b7280"]
+        result_worldfile [label="World file (.tfw)\n(GCP georeference params)" fillcolor="#f9fafb" color="#6b7280"]
+    }
+
+    // ── Edges ───────────────────────────────────────────────────────────────
+    user -> upload
+    upload -> file_type
+
+    file_type -> stripe_checkout
+    stripe_checkout -> stripe_redirect
+    stripe_redirect -> user [label="browser redirect\nto Stripe Checkout"]
+    user -> stripe_webhook [label="Stripe webhook\nPOST"]
+    stripe_webhook -> stripe_confirm
+
+    stripe_confirm -> submit_job
+    submit_job -> cf_proxy
+    cf_proxy -> meridian_internal
+
+    meridian_internal -> pdfium_render
+    pdfium_render -> georef
+    georef -> raster_export
+    raster_export -> rm_disp
+
+    rm_disp -> resend_trigger
+    resend_trigger -> cf_resend
+    cf_resend -> resend_email
+    resend_email -> stripe_confirm [label="email sent"]
+
+    rm_disp -> cf_railway
+    cf_railway -> railway_upload
+    railway_upload -> railway_storage
+    railway_rotate -> railway_storage
+    railway_storage -> result_jpeg
+    railway_storage -> result_geotiff
+    railway_storage -> result_worldfile
+
+    result_jpeg -> result_ready
+    result_geotiff -> result_ready
+    result_worldfile -> result_ready
+
+    result_ready -> user_download
+    user_download -> user [label="download complete"]
+
+    // External references
+    stripe_checkout -> stripe_ext [style=dashed color="#7c3aed" label="create session"]
+    stripe_webhook -> stripe_ext [style=dashed color="#7c3aed" label="webhook"]
+    resend_email -> resend_ext [style=dashed color="#ca8a04" label="send email"]
+    cf_proxy -> meridian_ext [style=dashed color="#16a34a" label="POST /v1/*"]
+}

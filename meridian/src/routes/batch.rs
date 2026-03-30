@@ -8,7 +8,7 @@ use std::time::Instant;
 use utoipa::ToSchema;
 
 use crate::{
-    billing::{build_payment_required, build_payment_required_with_price, log_dev_operation, verify_payment, PaymentError},
+    billing::{build_payment_required_with_price, log_dev_operation, verify_payment, PaymentError},
     error::AppError,
     gis::{
         buffer::do_buffer_blocking,

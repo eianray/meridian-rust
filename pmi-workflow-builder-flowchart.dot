@@ -1,0 +1,197 @@
+digraph PMIWorkflowBuilderFlow {
+    graph [
+        rankdir=TB
+        fontname="Helvetica Neue"
+        fontsize=13
+        pad=0.6
+        splines=ortho
+        nodesep=0.6
+        ranksep=0.8
+        bgcolor="white"
+        label="PMI Workflow Builder — GIS Pipeline Architecture\npmi-workflow-builder.pages.dev · Cloudflare Pages · Meridian API · USGS 3DEP"
+        labelloc=t
+        labeljust=c
+        fontsize=16
+    ]
+    node [fontname="Helvetica Neue" fontsize=12 style=filled shape=box margin="0.2,0.12"]
+    edge [fontname="Helvetica Neue" fontsize=11]
+
+    // ── LEGEND ───────────────────────────────────────────────────────────────
+    subgraph cluster_legend {
+        label="Legend"
+        style=filled fillcolor="#f8f9fa" color="#6b7280"
+        fontsize=12
+
+        l1 [label="Actor\n(User / Browser)" shape=oval fillcolor="#dbeafe" color="#3b82f6" width=1.6]
+        l2 [label="Cloudflare\n(Edge / Pages)" fillcolor="#f0f9ff" color="#0369a1" width=1.6]
+        l3 [label="Meridian API\n(Hetzner GIS)" fillcolor="#dcfce7" color="#16a34a" width=1.6]
+        l4 [label="External\nData Source" fillcolor="#fef9c3" color="#ca8a04" width=1.6]
+        l5 [label="Output\nFormat" fillcolor="#f3f4f6" color="#6b7280" width=1.6]
+
+        l1 -> l2 -> l3 -> l4 -> l5 [style=invis]
+    }
+
+    // ── Actors ──────────────────────────────────────────────────────────────
+    subgraph cluster_actors {
+        label="Actors"
+        style=dashed color="#aaaaaa"
+        fontsize=12
+
+        user [label="GIS Technician\n(Browser)" shape=oval fillcolor="#dbeafe" color="#3b82f6"]
+    }
+
+    // ── Step 1: AOI Selection ───────────────────────────────────────────────
+    subgraph cluster_step1 {
+        label="Step 1 — Area of Interest Selection"
+        style=rounded color="#e5e7eb"
+        draw_aoi [label="User draws AOI polygon\non Leaflet map\n(lat/lng, EPSG:4326)" fillcolor="#fef9c3" color="#ca8a04"]
+        select_wf [label="Select workflow:\nW1: Elevation Bands\nW2: Slope Bands\nW3: Contours 10/20/50/100ft" fillcolor="#fef9c3" color="#ca8a04" shape=note]
+        upload_shp [label="Optional: upload reference\nshapefile for AOI mask\n(used to clip output)" fillcolor="#fef9c3" color="#ca8a04"]
+    }
+
+    // ── Step 2: DEM Fetch ───────────────────────────────────────────────────
+    subgraph cluster_step2 {
+        label="Step 2 — Fetch DEM (USGS 3DEP)"
+        style=rounded color="#e5e7eb"
+        dem_request [label="Meridian: POST /v1/raster-warp\nbbox from AOI bounds\nCRS: EPSG:4326 → EPSG:3338\nSource: USGS 3DEP WCS" fillcolor="#dcfce7" color="#16a34a"]
+        dem_wcs [label="USGS 3DEP WCS\nhttps://elevation.arcgis.info/\narcgis/services/3DEPElevation\nMapServer/WCSServer" fillcolor="#fef9c3" color="#ca8a04"]
+        dem_raw [label="Raw DEM returned\n(GeoTIFF, EPSG:3338\nAlaska Albers, meters)" fillcolor="#dcfce7" color="#16a34a"]
+    }
+
+    // ── Step 3: Raster Processing ───────────────────────────────────────────
+    subgraph cluster_step3 {
+        label="Step 3 — Raster Processing (Meridian)"
+        style=rounded color="#e5e7eb"
+
+        reproject [label="POST /v1/raster-warp\nEPSG:4326 → EPSG:3338\n(Alaska Albers, meters)" fillcolor="#dcfce7" color="#16a34a"]
+        to_feet [label="POST /v1/raster-calc\nMultiply × 3.28\n(meters → US survey feet)" fillcolor="#bbf7d0" color="#15803d"]
+    }
+
+    // ── W1: Elevation Bands ─────────────────────────────────────────────────
+    subgraph cluster_w1 {
+        label="W1 — Elevation Bands"
+        style=rounded color="#16a34a"
+        w1_classify [label="POST /v1/raster-calc\nwhere(A<=0, 0,\n  where(A<=299, 1,\n    where(A<=1000, 2, 3)))\nBand 0: ≤0ft · Band 1: 1–299ft\nBand 2: 300–1000ft · Band 3: 1001+ft" fillcolor="#dcfce7" color="#16a34a" width=2.5]
+        w1_r2v [label="POST /v1/raster-to-vector\nfield_name=gridcode" fillcolor="#bbf7d0" color="#15803d"]
+        w1_dissolve [label="POST /v1/dissolve\ndissolve on gridcode\n~5 features (very fast)" fillcolor="#bbf7d0" color="#15803d"]
+    }
+
+    // ── W2: Slope Bands ─────────────────────────────────────────────────────
+    subgraph cluster_w2 {
+        label="W2 — Slope Bands"
+        style=rounded color="#0369a1"
+        w2_slope [label="POST /v1/slope\ngdaldem slope -p -compute_edges\nEPSG:3338 (not 4326)\noutput: percent slope" fillcolor="#dbeafe" color="#0369a1"]
+        w2_classify [label="POST /v1/raster-calc\nwhere(A<=9, 1,\n  where(A<=25, 2,\n    where(A>0, 3, 0)))\nBand 1: 0–9% · Band 2: 10–25%\nBand 3: 26%+ · Band 0: NoData" fillcolor="#bfdbfe" color="#0284c7"]
+        w2_r2v [label="POST /v1/raster-to-vector\nfield_name=gridcode" fillcolor="#93c5fd" color="#1d4ed8"]
+        w2_dissolve [label="POST /v1/dissolve\ndissolve on gridcode\n~2,500 features (~4 sec)" fillcolor="#93c5fd" color="#1d4ed8"]
+    }
+
+    // ── W3: Contours ────────────────────────────────────────────────────────
+    subgraph cluster_w3 {
+        label="W3 — Contours"
+        style=rounded color="#9333ea"
+        w3_contour_10 [label="POST /v1/contours\ninterval=10ft\nattribute_name=elev" fillcolor="#f3e8ff" color="#9333ea"]
+        w3_contour_20 [label="POST /v1/contours\ninterval=20ft" fillcolor="#f3e8ff" color="#9333ea"]
+        w3_contour_50 [label="POST /v1/contours\ninterval=50ft" fillcolor="#f3e8ff" color="#9333ea"]
+        w3_contour_100 [label="POST /v1/contours\ninterval=100ft" fillcolor="#f3e8ff" color="#9333ea"]
+    }
+
+    // ── Step 4: Post-Processing ─────────────────────────────────────────────
+    subgraph cluster_step4 {
+        label="Step 4 — Post-Processing"
+        style=rounded color="#e5e7eb"
+        clip [label="POST /v1/clip\nClip output to AOI boundary\n(uses shapefile mask if provided)" fillcolor="#dcfce7" color="#16a34a"]
+        calc_geom [label="POST /v1/calculate-geometry\nCalculate area in Acres\n(US Survey, EPSG:3338)" fillcolor="#bbf7d0" color="#15803d"]
+        add_field [label="POST /v1/add-field\nAdd gridcode field (0–3)\nfor ArcGIS Pro symbology" fillcolor="#bbf7d0" color="#15803d"]
+        add_prefix [label="Prefix layers with\nshapefile base name\n(e.g. AT_12-36_elevation_bands)" fillcolor="#d1fae5" color="#059669" shape=note]
+    }
+
+    // ── Step 5: Package + Download ──────────────────────────────────────────
+    subgraph cluster_step5 {
+        label="Step 5 — Package + Download"
+        style=rounded color="#e5e7eb"
+        package_gdb [label="POST /v1/package/gdb\nsource_crs=EPSG:3338\nAll layers → single .gdb.zip\n(OpenFileGDB driver)" fillcolor="#ccfbf1" color="#0d9488"]
+        download [label="Browser downloads .gdb.zip\n→ ArcGIS Pro\n(open directly, correct CRS\nand symbology fields auto-apply)" fillcolor="#dbeafe" color="#3b82f6"]
+    }
+
+    // ── CF Pages Function ────────────────────────────────────────────────────
+    subgraph cluster_cf {
+        label="Cloudflare Pages Function (functions/api/[[path]].js)"
+        style=filled fillcolor="#f0f9ff" color="#0369a1"
+        fontsize=11
+
+        cf_proxy [label="API proxy: forwards /api/*\nto Meridian, injects X-Mcp-Key\nMERIDIAN_KEY in env var\n(browser never sees key)" fillcolor="#e0f2fe" color="#0369a1" width=2.4]
+        cf_static [label="Static assets served\nindex.html · meridian_areas.geojson\n(no server-side processing)" fillcolor="#bae6fd" color="#0284c7" width=2.4]
+    }
+
+    // ── Reference Layers ─────────────────────────────────────────────────────
+    subgraph cluster_ref {
+        label="Map Reference Layers (browser-side)"
+        style=filled fillcolor="#f8fafc" color="#64748b"
+        fontsize=11
+
+        blm_plss [label="BLM CadNSDI PLSS\nTownship/Section/Aliquot\nPurple color scheme\nScale-gated visibility" fillcolor="#f1f5f9" color="#64748b"]
+        meridian_areas [label="Meridian Areas\n5 AK principal meridians\n(17MB GeoJSON, static CF Pages)" fillcolor="#f1f5f9" color="#64748b"]
+        mtp_layer [label="BLM Survey Plats (MTP)\nMaster Title Plats raster\noverlay from AK MapServer" fillcolor="#e2e8f0" color="#475569"]
+    }
+
+    // ── Output Formats ────────────────────────────────────────────────────────
+    subgraph cluster_output {
+        label="Output"
+        style=dashed color="#6b7280"
+        fontsize=11
+
+        out_gdb [label=".gdb.zip\nFile Geodatabase\n(for ArcGIS Pro)" fillcolor="#f9fafb" color="#6b7280"]
+        out_geojson [label="GeoJSON\n(intermediate download,\nWIP from vectorize)" fillcolor="#f9fafb" color="#6b7280"]
+    }
+
+    // ── Edges ───────────────────────────────────────────────────────────────
+    user -> draw_aoi
+    draw_aoi -> select_wf
+    select_wf -> upload_shp
+
+    upload_shp -> dem_request
+    dem_request -> dem_wcs
+    dem_wcs -> dem_raw
+    dem_raw -> reproject
+
+    reproject -> to_feet
+    to_feet -> w1_classify
+    to_feet -> w2_slope
+    to_feet -> w3_contour_10
+    to_feet -> w3_contour_20
+    to_feet -> w3_contour_50
+    to_feet -> w3_contour_100
+
+    // W1 path
+    w1_classify -> w1_r2v
+    w1_r2v -> w1_dissolve
+    w1_dissolve -> clip
+
+    // W2 path
+    w2_slope -> w2_classify
+    w2_classify -> w2_r2v
+    w2_r2v -> w2_dissolve
+    w2_dissolve -> clip
+
+    // W3 path (4 contours merge)
+    w3_contour_10 -> clip
+    w3_contour_20 -> clip
+    w3_contour_50 -> clip
+    w3_contour_100 -> clip
+
+    // Post-processing
+    clip -> calc_geom
+    calc_geom -> add_field
+    add_field -> add_prefix
+    add_prefix -> package_gdb
+
+    package_gdb -> cf_proxy
+    cf_proxy -> out_gdb
+    out_gdb -> download
+    download -> user [label="open in\nArcGIS Pro"]
+
+    // Internal Meridian edges
+    reproject -> cf_proxy [style=dashed color="#16a34a" label="DEM fetch"]
+    cf_proxy -> dem_request [style=dashed color="#16a34a"]
+}

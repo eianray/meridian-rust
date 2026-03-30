@@ -1,7 +1,7 @@
 //! POST /v1/raster-georeference — Georeference a raster using Ground Control Points (GCPs).
 //! Accepts a multipart form upload and produces a Cloud Optimized GeoTIFF via GDAL warp.
 
-use axum::{extract::Extension, http::HeaderMap, response::{IntoResponse, Response}, routing::post, Json, Router};
+use axum::{extract::Extension, http::HeaderMap, response::Response, routing::post, Router};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;

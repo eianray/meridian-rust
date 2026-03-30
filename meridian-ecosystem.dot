@@ -1,0 +1,274 @@
+digraph MeridianEcosystem {
+    graph [
+        rankdir=LR
+        fontname="Helvetica Neue"
+        fontsize=13
+        pad=1.2
+        splines=polyline
+        nodesep=0.38
+        ranksep=2.0
+        bgcolor="white"
+        label="PMI Meridian Ecosystem — v0.4.0\nmeridianapi.nodeapi.ai  ·  Base USDC  ·  x402 Payment Protocol  ·  Hetzner CAX21 ARM64"
+        labelloc=t
+        labeljust=c
+        fontsize=22
+        fontcolor="#0f172a"
+        size="34,22"
+        ratio=fill
+    ]
+    node [fontname="Helvetica Neue" fontsize=10 style=filled shape=box margin="0.18,0.10" width=2.1]
+    edge [fontname="Helvetica Neue" fontsize=8 color="#94a3b8"]
+
+    // ═══════════════════════════════════════════════════════════════
+    // CLIENT PROJECTS
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_clients {
+        label="Client Projects"
+        style=filled
+        fillcolor="#f8fafc"
+        color="#cbd5e1"
+        fontsize=14
+        fontname="Helvetica Neue"
+
+        wb [label="PMI Workflow Builder\npmi-workflow-builder.pages.dev\nCloudflare Pages"
+            fillcolor="#e0e7ff" color="#4338ca" fontcolor="#1e1b4b"
+            shape=box3d width=2.4]
+
+        ottit [label="Ottit\nPLSS Parcel Lookup Tool\nFlask · Local (deploy pending)"
+            fillcolor="#e0f2fe" color="#0369a1" fontcolor="#0c4a6e"
+            shape=box3d width=2.4]
+
+        drawbridge [label="DrawBridge\nGIS Digitizing Platform\napp.drawbridgegis.com · Railway"
+            fillcolor="#f8f8f8" color="#9ca3af" fontcolor="#6b7280"
+            shape=box3d width=2.4 style="filled,dashed"]
+
+        db_note [label="⚠ DrawBridge → Meridian\nintegration planned,\nnot yet built"
+            shape=note fillcolor="#fef9c3" color="#ca8a04" fontcolor="#92400e"
+            fontsize=9 width=2.2]
+
+        drawbridge -> db_note [style=dashed color="#d1d5db" arrowhead=none]
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MERIDIAN CORE API
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_meridian {
+        label="MeridianRust API — Rust / Axum 0.7"
+        style=filled
+        fillcolor="#f0fdf4"
+        color="#16a34a"
+        fontsize=15
+        fontname="Helvetica Neue"
+
+        // ── Entry ──
+        rate_limiter [label="Rate Limiter\n60 req/min · Tower middleware"
+            fillcolor="#dcfce7" color="#16a34a" width=2.2]
+        price_engine  [label="Price Engine\n\$0.01/MB · min \$0.01 · cap \$2.00"
+            fillcolor="#dcfce7" color="#16a34a" width=2.2]
+        pay_verify    [label="x402 Payment\nVerification"
+            fillcolor="#bbf7d0" color="#15803d" width=2.2]
+        gdal_sem      [label="GDAL Semaphore\nmax 8 concurrent threads"
+            fillcolor="#dcfce7" color="#16a34a" width=2.2]
+        result_node   [label="Response\n{ request_id · price_usd · result }"
+            fillcolor="#bbf7d0" color="#15803d" width=2.2]
+
+        // ── Schema & Validation ──
+        subgraph cluster_schema {
+            label="Schema & Validation"
+            style=filled fillcolor="#fefce8" color="#ca8a04" fontsize=11
+            ep_schema   [label="POST /v1/schema"   fillcolor="#fef9c3" color="#ca8a04" fontcolor="#713f12"]
+            ep_validate [label="POST /v1/validate" fillcolor="#fef9c3" color="#ca8a04" fontcolor="#713f12"]
+            ep_repair   [label="POST /v1/repair"   fillcolor="#fef9c3" color="#ca8a04" fontcolor="#713f12"]
+        }
+
+        // ── Format Conversion ──
+        subgraph cluster_convert {
+            label="Format Conversion"
+            style=filled fillcolor="#eff6ff" color="#2563eb" fontsize=11
+            ep_convert  [label="POST /v1/convert\nGeoJSON · SHP · KML · GPKG"
+                fillcolor="#dbeafe" color="#2563eb" fontcolor="#1e3a8a"]
+        }
+
+        // ── Core GIS ──
+        subgraph cluster_coregis {
+            label="Core GIS"
+            style=filled fillcolor="#eff6ff" color="#3b82f6" fontsize=11
+            ep_reproject [label="POST /v1/reproject"  fillcolor="#dbeafe" color="#3b82f6" fontcolor="#1e3a8a"]
+            ep_buffer    [label="POST /v1/buffer"     fillcolor="#dbeafe" color="#3b82f6" fontcolor="#1e3a8a"]
+            ep_clip      [label="POST /v1/clip"       fillcolor="#dbeafe" color="#3b82f6" fontcolor="#1e3a8a"]
+            ep_dissolve  [label="POST /v1/dissolve"   fillcolor="#dbeafe" color="#3b82f6" fontcolor="#1e3a8a"]
+        }
+
+        // ── Geometry Transforms ──
+        subgraph cluster_transforms {
+            label="Geometry Transforms"
+            style=filled fillcolor="#fff7ed" color="#ea580c" fontsize=11
+            ep_erase    [label="POST /v1/erase"                 fillcolor="#ffedd5" color="#ea580c" fontcolor="#7c2d12"]
+            ep_ftp      [label="POST /v1/feature-to-point"      fillcolor="#ffedd5" color="#ea580c" fontcolor="#7c2d12"]
+            ep_ftl      [label="POST /v1/feature-to-line"       fillcolor="#ffedd5" color="#ea580c" fontcolor="#7c2d12"]
+            ep_ftpoly   [label="POST /v1/feature-to-polygon"    fillcolor="#ffedd5" color="#ea580c" fontcolor="#7c2d12"]
+            ep_m2s      [label="POST /v1/multipart-to-singlepart" fillcolor="#ffedd5" color="#ea580c" fontcolor="#7c2d12"]
+            ep_addfield [label="POST /v1/add-field"             fillcolor="#ffedd5" color="#ea580c" fontcolor="#7c2d12"]
+            ep_calcgeom [label="POST /v1/calculate-geometry"    fillcolor="#fed7aa" color="#c2410c" fontcolor="#7c2d12"]
+        }
+
+        // ── Topology & Combine ──
+        subgraph cluster_topology {
+            label="Topology & Combine"
+            style=filled fillcolor="#faf5ff" color="#9333ea" fontsize=11
+            ep_union       [label="POST /v1/union"        fillcolor="#f3e8ff" color="#9333ea" fontcolor="#3b0764"]
+            ep_intersect   [label="POST /v1/intersect"    fillcolor="#f3e8ff" color="#9333ea" fontcolor="#3b0764"]
+            ep_difference  [label="POST /v1/difference"   fillcolor="#f3e8ff" color="#9333ea" fontcolor="#3b0764"]
+            ep_append      [label="POST /v1/append"       fillcolor="#ede9fe" color="#7c3aed" fontcolor="#3b0764"]
+            ep_merge       [label="POST /v1/merge"        fillcolor="#ede9fe" color="#7c3aed" fontcolor="#3b0764"]
+            ep_spjoin      [label="POST /v1/spatial-join" fillcolor="#ede9fe" color="#7c3aed" fontcolor="#3b0764"]
+        }
+
+        // ── Raster & DEM ──
+        subgraph cluster_raster {
+            label="Raster & DEM  (GDAL / gdaldem / gdal_calc.py)"
+            style=filled fillcolor="#f0fdf4" color="#059669" fontsize=11
+            ep_hillshade    [label="POST /v1/hillshade"       fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_slope        [label="POST /v1/slope"           fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_aspect       [label="POST /v1/aspect"          fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_roughness    [label="POST /v1/roughness"       fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_colorrelief  [label="POST /v1/color-relief"    fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_contours     [label="POST /v1/contours"        fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_rastercalc   [label="POST /v1/raster-calc"     fillcolor="#bbf7d0" color="#16a34a" fontcolor="#064e3b"]
+            ep_rasterwarp   [label="POST /v1/raster-warp"     fillcolor="#bbf7d0" color="#16a34a" fontcolor="#064e3b"]
+            ep_mosaic       [label="POST /v1/mosaic"          fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_rconvert     [label="POST /v1/convert/raster"  fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+            ep_reclassify   [label="POST /v1/reclassify"      fillcolor="#bbf7d0" color="#16a34a" fontcolor="#064e3b"]
+            ep_r2v          [label="POST /v1/raster-to-vector" fillcolor="#d1fae5" color="#059669" fontcolor="#064e3b"]
+        }
+
+        // ── Output & Packaging ──
+        subgraph cluster_output {
+            label="Output & Packaging"
+            style=filled fillcolor="#f0fdfa" color="#0d9488" fontsize=11
+            ep_vectorize [label="POST /v1/vectorize\n→ .mbtiles (tippecanoe)" fillcolor="#ccfbf1" color="#0d9488" fontcolor="#134e4a"]
+            ep_gdb       [label="POST /v1/package/gdb\n→ .gdb export"         fillcolor="#ccfbf1" color="#0d9488" fontcolor="#134e4a"]
+            ep_batch     [label="POST /v1/batch\nup to 50 ops · single payment" fillcolor="#99f6e4" color="#0f766e" fontcolor="#134e4a"]
+        }
+
+        // ── Reference (Free) ──
+        subgraph cluster_reference {
+            label="Reference  (no payment required)"
+            style=filled fillcolor="#f8fafc" color="#64748b" fontsize=11
+            ep_health [label="GET /v1/health\nversion · status"    fillcolor="#f1f5f9" color="#64748b" fontcolor="#1e293b"]
+            ep_epsg   [label="GET /v1/epsg/search\n336 EPSG entries bundled" fillcolor="#f1f5f9" color="#64748b" fontcolor="#1e293b"]
+            ep_plss   [label="POST /v1/plss/lookup\nAK PLSS section polygon lookup" fillcolor="#e2e8f0" color="#475569" fontcolor="#1e293b"]
+        }
+
+        // ── Internal flow ──
+        rate_limiter -> price_engine  [color="#16a34a"]
+        price_engine  -> pay_verify   [color="#16a34a"]
+        pay_verify    -> gdal_sem     [color="#15803d" label="payment\nverified"]
+        gdal_sem      -> ep_schema    [color="#ca8a04"]
+        gdal_sem      -> ep_convert   [color="#2563eb"]
+        gdal_sem      -> ep_reproject [color="#3b82f6"]
+        gdal_sem      -> ep_erase     [color="#ea580c"]
+        gdal_sem      -> ep_union     [color="#9333ea"]
+        gdal_sem      -> ep_hillshade [color="#059669"]
+        gdal_sem      -> ep_vectorize [color="#0d9488"]
+        gdal_sem      -> ep_health    [color="#64748b" style=dashed label="free"]
+        ep_schema    -> result_node   [color="#ca8a04"]
+        ep_convert   -> result_node   [color="#2563eb"]
+        ep_reproject -> result_node   [color="#3b82f6"]
+        ep_erase     -> result_node   [color="#ea580c"]
+        ep_union     -> result_node   [color="#9333ea"]
+        ep_hillshade -> result_node   [color="#059669"]
+        ep_vectorize -> result_node   [color="#0d9488"]
+        ep_health    -> result_node   [color="#64748b" style=dashed]
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PAYMENT INFRASTRUCTURE
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_payment {
+        label="Payment Layer — x402 / Base USDC"
+        style=filled fillcolor="#fdf4ff" color="#9333ea" fontsize=13
+        fontname="Helvetica Neue"
+
+        cdp [label="Coinbase CDP Facilitator\napi.cdp.coinbase.com\nEIP-712 verify · EIP-3009 settle"
+            fillcolor="#f3e8ff" color="#9333ea" fontcolor="#3b0764" width=2.6]
+        base_usdc [label="Base Mainnet\nUSDC Contract\n0x833589...t1v\ntransferWithAuthorization()"
+            fillcolor="#fed7aa" color="#ea580c" fontcolor="#7c2d12" width=2.6]
+        wallet_recv [label="Recipient Wallet\n0x87f125...B74\n(Meridian operator)"
+            fillcolor="#fdba74" color="#c2410c" fontcolor="#7c2d12" width=2.6]
+
+        cdp -> base_usdc   [label="submit on-chain\ntx" color="#9333ea"]
+        base_usdc -> wallet_recv [label="USDC\ntransfer" color="#ea580c"]
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // OBSERVABILITY & STORAGE
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_infra {
+        label="Observability & Storage"
+        style=filled fillcolor="#f8fafc" color="#64748b" fontsize=12
+        fontname="Helvetica Neue"
+
+        pg  [label="PostgreSQL\noperations_log\nused_signatures (replay protection)"
+            fillcolor="#f1f5f9" color="#475569" fontcolor="#1e293b" width=2.4]
+        prom [label="Prometheus\n/metrics\nops/sec · latency · payment rate"
+            fillcolor="#f1f5f9" color="#475569" fontcolor="#1e293b" width=2.4]
+        openapi [label="OpenAPI / Swagger\n/docs  (utoipa, always in sync)"
+            fillcolor="#f1f5f9" color="#475569" fontcolor="#1e293b" width=2.4]
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // API CONSUMER
+    // ═══════════════════════════════════════════════════════════════
+    agent [label="API Consumer\n(AI Agent or Developer)"
+        shape=oval fillcolor="#dbeafe" color="#2563eb" fontcolor="#1e3a8a"
+        width=2.4]
+
+    // ═══════════════════════════════════════════════════════════════
+    // EDGES — Consumer → Meridian
+    // ═══════════════════════════════════════════════════════════════
+    agent -> rate_limiter [label="POST /v1/<op>\n+ file (multipart)" color="#2563eb" penwidth=1.5]
+
+    // ═══════════════════════════════════════════════════════════════
+    // EDGES — Meridian → Payment
+    // ═══════════════════════════════════════════════════════════════
+    pay_verify -> cdp [label="POST /facilitate\nX-PAYMENT header" color="#9333ea" penwidth=1.5]
+    cdp -> pay_verify [label="{ isValid: true\npayer · transaction }" color="#9333ea" style=dashed]
+
+    // ═══════════════════════════════════════════════════════════════
+    // EDGES — Meridian → Observability
+    // ═══════════════════════════════════════════════════════════════
+    result_node -> pg     [style=dashed color="#94a3b8" label="log op"]
+    result_node -> prom   [style=dashed color="#94a3b8" label="metrics"]
+    result_node -> openapi [style=dashed color="#94a3b8" arrowhead=none]
+
+    // ═══════════════════════════════════════════════════════════════
+    // EDGES — PMI Workflow Builder → Meridian (LIVE)
+    // ═══════════════════════════════════════════════════════════════
+    wb -> ep_slope      [label="elevation/slope\nbands" color="#4338ca" penwidth=1.5 style=bold]
+    wb -> ep_rasterwarp [color="#4338ca" penwidth=1.5 style=bold]
+    wb -> ep_rastercalc [label="raster math\n(unit convert)" color="#4338ca" penwidth=1.5 style=bold]
+    wb -> ep_contours   [color="#4338ca" penwidth=1.5 style=bold]
+    wb -> ep_dissolve   [label="vectorize +\ndissolve bands" color="#4338ca" penwidth=1.5 style=bold]
+    wb -> ep_gdb        [label="GDB\nexport" color="#4338ca" penwidth=1.5 style=bold]
+    wb -> ep_r2v        [color="#4338ca" penwidth=1.5 style=bold]
+
+    // ═══════════════════════════════════════════════════════════════
+    // EDGES — Ottit → Meridian (LIVE)
+    // ═══════════════════════════════════════════════════════════════
+    ottit -> ep_plss  [label="PLSS section\nlookup" color="#0369a1" penwidth=1.5 style=bold]
+    ottit -> ep_epsg  [label="CRS search" color="#0369a1" penwidth=1.5 style=bold]
+
+    // ═══════════════════════════════════════════════════════════════
+    // EDGES — DrawBridge → Meridian (PLANNED — dashed gray)
+    // ═══════════════════════════════════════════════════════════════
+    drawbridge -> ep_reproject  [style=dashed color="#d1d5db" penwidth=1.2 fontcolor="#9ca3af" label="reproject\nuploaded layers"]
+    drawbridge -> ep_clip       [style=dashed color="#d1d5db" penwidth=1.2]
+    drawbridge -> ep_validate   [style=dashed color="#d1d5db" penwidth=1.2 label="validate\ndigitized geom"]
+    drawbridge -> ep_repair     [style=dashed color="#d1d5db" penwidth=1.2]
+    drawbridge -> ep_calcgeom   [style=dashed color="#d1d5db" penwidth=1.2 label="area/length\nof features"]
+    drawbridge -> ep_dissolve   [style=dashed color="#d1d5db" penwidth=1.2]
+    drawbridge -> ep_gdb        [style=dashed color="#d1d5db" penwidth=1.2 label="GDB\nexport"]
+    drawbridge -> ep_vectorize  [style=dashed color="#d1d5db" penwidth=1.2 label="tile preview"]
+    drawbridge -> ep_r2v        [style=dashed color="#d1d5db" penwidth=1.2 label="raster→vector\npoly conversion"]
+}

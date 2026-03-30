@@ -1,6 +1,5 @@
 use gdal::DriverManager;
 use gdal::vector::{FieldValue, LayerAccess};
-use serde_json::Value;
 use std::path::PathBuf;
 
 use crate::error::AppError;
@@ -206,7 +205,6 @@ fn sanitize_zip_path(name: &str) -> Option<std::path::PathBuf> {
 }
 
 fn unzip_to_dir(zip_bytes: &[u8], dest_dir: &std::path::Path) -> Result<(), AppError> {
-    use std::io::Read;
     let cursor = std::io::Cursor::new(zip_bytes);
     let mut zip = zip::ZipArchive::new(cursor)
         .map_err(|e| AppError::BadRequest(format!("Invalid zip file: {e}")))?;
@@ -339,7 +337,7 @@ fn gdal_copy_layer(src: &PathBuf, dst: &PathBuf, driver_name: &str) -> Result<()
         ty: geom_type,
         options: None,
     };
-    let mut dst_layer = dst_ds.create_layer(layer_opts)
+    let dst_layer = dst_ds.create_layer(layer_opts)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create layer: {e}")))?;
 
     // Copy field definitions

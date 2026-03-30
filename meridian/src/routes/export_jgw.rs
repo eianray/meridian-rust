@@ -2,7 +2,7 @@
 //! Accepts a multipart form upload. Pure math: converts lon/lat + scale/rotation
 //! to 6-parameter ESRI world file.
 
-use axum::{extract::Extension, http::HeaderMap, response::IntoResponse, routing::post, Json, Router};
+use axum::{extract::Extension, http::HeaderMap, routing::post, Json, Router};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
@@ -164,17 +164,17 @@ fn run_export_jgw(
     let sin_r = rot_rad.sin();
     let scale = placement.scale;
 
-    let A = scale * cos_r;
-    let D = -scale * sin_r;
-    let B = scale * sin_r;
-    let E = scale * cos_r;
-    let C = placement.lon;
-    let F = placement.lat;
+    let a = scale * cos_r;
+    let d = -scale * sin_r;
+    let b = scale * sin_r;
+    let e = scale * cos_r;
+    let c = placement.lon;
+    let f = placement.lat;
 
     // Build world file content (one value per line, no trailing newline expected by ESRI)
     let jgw_content = format!(
         "{:.15}\n{:.15}\n{:.15}\n{:.15}\n{:.15}\n{:.15}\n",
-        A, D, B, E, C, F
+        a, d, b, e, c, f
     );
 
     // Read first band of GeoTIFF and encode as JPEG

@@ -1,6 +1,5 @@
 use axum::{extract::Extension, http::HeaderMap, Json};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use gdal::vector::LayerAccess;
 use serde::Deserialize;
 use std::time::Instant;
 use tempfile::TempDir;
@@ -63,7 +62,7 @@ pub async fn package_gdb(
     let mut field_count: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
 
-    while let Some(mut field) = multipart
+    while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
@@ -250,7 +249,6 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)], source_crs: &str) -> Result<Vec<
 
 fn zip_directory(src_dir: &std::path::Path, zip_path: &std::path::Path) -> Result<(), AppError> {
     use std::fs;
-    use std::io::{Read, Write};
 
     let file = fs::File::create(zip_path)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create zip file: {e}")))?;

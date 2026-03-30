@@ -518,14 +518,14 @@ fn run_contours_sync(
     let srs = in_ds.spatial_ref().ok();
 
     // Create layer for contours
-    let mut layer_options = LayerOptions {
+    let layer_options = LayerOptions {
         name: "contours",
         srs: srs.as_ref(),
         ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
         options: None,
     };
 
-    let mut layer = out_ds.create_layer(layer_options)
+    let layer = out_ds.create_layer(layer_options)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create layer: {e}")))?;
 
     // Add ID field (required by GDALContourGenerate for feature ID)
@@ -1097,7 +1097,7 @@ fn run_raster_to_vector_sync(
         .map_err(|e| AppError::BadRequest(format!("Invalid band {}: {}", band_num, e)))?;
 
     // Get no-data value (use provided or from raster)
-    let no_data_val = no_data.or_else(|| band.no_data_value());
+    let _no_data_val = no_data.or_else(|| band.no_data_value());
     let c_band = unsafe { band.c_rasterband() };
 
     // Create output GeoJSON dataset
@@ -1113,14 +1113,14 @@ fn run_raster_to_vector_sync(
     let srs = in_ds.spatial_ref().ok();
 
     // Create layer for polygons
-    let mut layer_options = LayerOptions {
+    let layer_options = LayerOptions {
         name: "polygons",
         srs: srs.as_ref(),
         ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
         options: None,
     };
 
-    let mut layer = out_ds.create_layer(layer_options)
+    let layer = out_ds.create_layer(layer_options)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create layer: {e}")))?;
 
     // Add DN field for pixel values
