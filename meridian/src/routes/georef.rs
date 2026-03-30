@@ -1,12 +1,13 @@
-//! POST /v1/raster-georeference — Georeference a JPEG using Ground Control Points (GCPs).
-//! Produces a Cloud Optimized GeoTIFF via GDAL warp using gdalwarp CLI.
+//! POST /v1/raster-georeference — Georeference a raster using Ground Control Points (GCPs).
+//! Accepts a multipart form upload and produces a Cloud Optimized GeoTIFF via GDAL warp.
 
-use axum::{extract::Extension, http::HeaderMap, Json};
+use axum::{extract::Extension, http::HeaderMap, response::{IntoResponse, Response}, routing::post, Json, Router};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use std::{fs::File, io::Write, process::Command};
-use tempfile::TempDir;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     error::AppError,
@@ -18,14 +19,6 @@ use crate::{
 use crate::gis::reproject::payment_gate;
 
 #[derive(Deserialize, ToSchema)]
-pub struct GeorefParams {
-    /// Path to the input JPEG image (on server filesystem)
-    pub image_path: String,
-    /// Ground Control Points
-    pub gcps: Vec<GCPInput>,
-}
-
-#[derive(Deserialize, ToSchema, Clone)]
 pub struct GCPInput {
     /// Pixel X coordinate (column)
     pub pixel_x: f64,
@@ -48,33 +41,22 @@ pub struct GeorefResponse {
 
 /// POST /v1/raster-georeference
 ///
-/// Accepts a JPEG + ground control points and produces a Cloud Optimized GeoTIFF.
+/// Accepts a raster image + ground control points via multipart form and produces a
+/// Cloud Optimized GeoTIFF. Caller uploads raw bytes; server never needs a pre-existing
+/// file path.
 ///
-/// **Input (JSON):**
-/// ```json
-/// {
-///   "image_path": "/tmp/page1.jpg",
-///   "gcps": [
-///     { "pixel_x": 100, "pixel_y": 200, "lon": -122.4194, "lat": 37.7749 }
-///   ]
-/// }
-/// ```
+/// **Input (multipart/form-data):**
+/// - `image`: raw TIFF/raster bytes
+/// - `gcps`: JSON string — array of `{"pixel_x": N, "pixel_y": N, "lon": N, "lat": N}`
+/// - `output_crs`: optional string, default `"EPSG:4326"`
 ///
-/// **Output (JSON):**
-/// ```json
-/// {
-///   "request_id": "...",
-///   "cog_url": "/tmp/georef_abc123.tif",
-///   "width": 800,
-///   "height": 600,
-///   "crs": "EPSG:4326"
-/// }
-/// ```
+/// **Output:** raw georeferenced TIFF as `application/octet-stream`
+/// with `Content-Disposition: attachment; filename="georef_<request_id>.tif"`
 #[utoipa::path(
     post,
     path = "/v1/raster-georeference",
     tag = "GIS",
-    request_body(content = GeorefParams, content_type = "application/json"),
+    request_body(content = GeorefResponse, content_type = "multipart/form-data"),
     responses(
         (status = 200, description = "Georeferenced COG", body = GeorefResponse),
         (status = 400, description = "Bad request"),
@@ -86,24 +68,46 @@ pub async fn raster_georeference(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Extension(state): Extension<AppState>,
     headers: HeaderMap,
-    Json(params): Json<GeorefParams>,
-) -> Result<Json<GeorefResponse>, AppError> {
-    if params.gcps.is_empty() {
+    mut multipart: axum::extract::Multipart,
+) -> Result<Response, AppError> {
+    let mut image_bytes: Option<Bytes> = None;
+    let mut gcps_json: Option<String> = None;
+    let mut output_crs: String = "EPSG:4326".to_string();
+
+    // Parse multipart fields
+    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))? {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "image" => {
+                image_bytes = Some(field.bytes().await.map_err(|e| AppError::BadRequest(format!("Failed to read image bytes: {e}")))?);
+            }
+            "gcps" => {
+                gcps_json = Some(field.text().await.map_err(|e| AppError::BadRequest(format!("Failed to read gcps: {e}")))?);
+            }
+            "output_crs" => {
+                output_crs = field.text().await.map_err(|e| AppError::BadRequest(format!("Failed to read output_crs: {e}")))?.trim().to_string();
+                if output_crs.is_empty() {
+                    output_crs = "EPSG:4326".to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let image_bytes = image_bytes.ok_or_else(|| AppError::BadRequest("Missing required field: image".into()))?;
+    let gcps_json = gcps_json.ok_or_else(|| AppError::BadRequest("Missing required field: gcps".into()))?;
+
+    let gcps: Vec<GCPInput> = serde_json::from_str(&gcps_json)
+        .map_err(|e| AppError::BadRequest(format!("Invalid gcps JSON: {e}")))?;
+
+    if gcps.is_empty() {
         return Err(AppError::BadRequest("At least one GCP is required".into()));
     }
-    if params.gcps.len() < 3 {
+    if gcps.len() < 3 {
         return Err(AppError::BadRequest("At least 3 GCPs are required for georeferencing".into()));
     }
 
-    let image_path = &params.image_path;
-    if !image_path.starts_with("/tmp/") {
-        return Err(AppError::BadRequest("image_path must be in /tmp/".into()));
-    }
-
-    let file_size = std::fs::metadata(image_path)
-        .map(|m| m.len() as usize)
-        .unwrap_or(0);
-
+    let file_size = image_bytes.len();
     let price = compute_price(file_size.max(1024));
     let t0 = Instant::now();
     metrics::record_request("raster-georeference", "received");
@@ -111,14 +115,9 @@ pub async fn raster_georeference(
     // Payment gate — skip if MCP key
     payment_gate("raster-georeference", file_size, price, &request_id, &headers, &state).await?;
 
-    // Build GCP list before spawning thread (clone for thread safety)
-    let gcps = params.gcps.clone();
-    let image_path_owned = image_path.to_string();
-    let request_id_owned = request_id.to_string();
-
-    // Run in blocking thread
+    let uuid = Uuid::new_v4().to_string();
     let result = tokio::task::spawn_blocking(move || {
-        run_georef(&image_path_owned, &gcps, &request_id_owned)
+        run_georef(&uuid, &image_bytes, &gcps, &request_id, &output_crs)
     })
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
@@ -127,13 +126,22 @@ pub async fn raster_georeference(
     metrics::record_request("raster-georeference", "ok");
     metrics::record_request_duration("raster-georeference", t0.elapsed().as_secs_f64());
 
-    Ok(Json(GeorefResponse {
-        request_id,
-        cog_url: result.cog_url,
-        width: result.width,
-        height: result.height,
-        crs: "EPSG:4326".to_string(),
-    }))
+    // Read output and return as binary
+    let output_bytes = tokio::fs::read(&result.cog_url).await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read output file: {e}")))?;
+
+    // Clean up output file
+    let _ = tokio::fs::remove_file(&result.cog_url).await;
+
+    let filename = format!("georef_{}.tif", request_id.replace("-", "_"));
+    let mut response = Response::new(output_bytes.into());
+    response.headers_mut().insert(axum::http::header::CONTENT_TYPE, "application/octet-stream".parse().unwrap());
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", filename).parse().unwrap(),
+    );
+
+    Ok(response)
 }
 
 struct GeorefResult {
@@ -143,17 +151,28 @@ struct GeorefResult {
 }
 
 fn run_georef(
-    image_path: &str,
+    uuid: &str,
+    image_bytes: &[u8],
     gcps: &[GCPInput],
     request_id: &str,
+    output_crs: &str,
 ) -> Result<GeorefResult, AppError> {
-    let tmp = TempDir::new()
+    let input_path = format!("/tmp/{}_input.tif", uuid);
+
+    // Write uploaded bytes to temp input file
+    let mut input_file = File::create(&input_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create input file: {e}")))?;
+    input_file.write_all(image_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input file: {e}")))?;
+    drop(input_file);
+
+    let tmp = tempfile::TempDir::new()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
 
     let tmp_gtiff = tmp.path().join("georef_tmp.tif");
     let out_path = format!("/tmp/georef_{}_{}.tif", request_id.replace("-", "_"), std::process::id());
 
-    // Build gdal_translate args with all GCPs (owned Strings to avoid temporaries)
+    // Build gdal_translate args with all GCPs
     let mut translate_args: Vec<String> = vec!["-of".to_string(), "GTiff".to_string()];
     for g in gcps {
         translate_args.push("-gcp".to_string());
@@ -162,7 +181,7 @@ fn run_georef(
         translate_args.push(format!("{:.10}", g.lon));
         translate_args.push(format!("{:.10}", g.lat));
     }
-    translate_args.push(image_path.to_string());
+    translate_args.push(input_path.clone());
     translate_args.push(tmp_gtiff.to_str().unwrap().to_string());
 
     let translate_status = Command::new("gdal_translate")
@@ -171,21 +190,30 @@ fn run_georef(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("gdal_translate exec: {e}")))?;
 
     if !translate_status.success() {
+        // Clean up input
+        let _ = std::fs::remove_file(&input_path);
         return Err(AppError::Internal(anyhow::anyhow!(
             "gdal_translate failed with status: {}", translate_status
         )));
     }
 
     if !tmp_gtiff.exists() {
+        let _ = std::fs::remove_file(&input_path);
         return Err(AppError::Internal(anyhow::anyhow!(
             "gdal_translate completed but temp output not created"
         )));
     }
 
     // Step 2: gdalwarp to create COG from the GCP-affixed TIFF
+    let t_srs = if output_crs.is_empty() || output_crs == "EPSG:4326" {
+        "EPSG:4326"
+    } else {
+        output_crs
+    };
+
     let warp_status = Command::new("gdalwarp")
         .args([
-            "-t_srs", "EPSG:4326",
+            "-t_srs", t_srs,
             "-r", "bilinear",
             "-of", "GTiff",
             "-co", "TILED=YES",
@@ -197,6 +225,9 @@ fn run_georef(
         .arg(&out_path)
         .status()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("gdalwarp exec: {e}")))?;
+
+    // Always clean up input
+    let _ = std::fs::remove_file(&input_path);
 
     if !warp_status.success() {
         return Err(AppError::Internal(anyhow::anyhow!(
@@ -221,4 +252,9 @@ fn run_georef(
         width: width as u32,
         height: height as u32,
     })
+}
+
+/// Registers the georef routes.
+pub fn routes() -> Router {
+    Router::new().route("/v1/raster-georeference", post(raster_georeference))
 }

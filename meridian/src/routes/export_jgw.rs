@@ -1,11 +1,14 @@
-//! POST /v1/export/jgw — Export a GeoTIFF as JPEG + ESRI world file (.jgw).
-//! Pure math: converts lon/lat + scale/rotation to 6-parameter ESRI world file.
+//! POST /v1/export/jgw — Export a raster as JPEG + ESRI world file (.jgw).
+//! Accepts a multipart form upload. Pure math: converts lon/lat + scale/rotation
+//! to 6-parameter ESRI world file.
 
-use axum::{extract::Extension, http::HeaderMap, Json};
-use gdal::Dataset;
+use axum::{extract::Extension, http::HeaderMap, response::IntoResponse, routing::post, Json, Router};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::time::Instant;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     error::AppError,
@@ -15,14 +18,6 @@ use crate::{
     AppState,
 };
 use crate::gis::reproject::payment_gate;
-
-#[derive(Deserialize, ToSchema)]
-pub struct ExportJgwParams {
-    /// Path to the input GeoTIFF (on server filesystem)
-    pub image_path: String,
-    /// Placement data
-    pub placement: Placement,
-}
 
 #[derive(Deserialize, ToSchema)]
 pub struct Placement {
@@ -39,33 +34,27 @@ pub struct Placement {
 #[derive(Serialize, ToSchema)]
 pub struct ExportJgwResponse {
     pub request_id: String,
-    pub jpeg_url: String,
-    pub jgw_url: String,
+    /// JPEG bytes as base64
+    pub jpeg_base64: String,
+    /// JGW world file content (6 lines, one value per line)
+    pub jgw_content: String,
 }
 
 /// POST /v1/export/jgw
 ///
-/// Produces a JPEG + ESRI world file (.jgw) from a GeoTIFF and placement data.
+/// Accepts a raster image via multipart form and produces a JPEG + ESRI world file (.jgw).
+/// Caller uploads raw bytes; server never needs a pre-existing file path.
 ///
-/// **Input (JSON):**
-/// ```json
-/// {
-///   "image_path": "/tmp/georef.tif",
-///   "placement": {
-///     "lon": -122.4194,
-///     "lat": 37.7749,
-///     "scale": 0.1,
-///     "rotation": 0.0
-///   }
-/// }
-/// ```
+/// **Input (multipart/form-data):**
+/// - `image`: raw raster bytes (GeoTIFF or any GDAL-readable format)
+/// - `placement`: JSON string — `{"lon": N, "lat": N, "scale": N, "rotation": N}`
 ///
 /// **Output (JSON):**
 /// ```json
 /// {
 ///   "request_id": "...",
-///   "jpeg_url": "/tmp/output.jpg",
-///   "jgw_url": "/tmp/output.jgw"
+///   "jpeg_base64": "<base64-encoded JPEG>",
+///   "jgw_content": "A\nD\nB\nE\nC\nF\n"
 /// }
 /// ```
 ///
@@ -80,7 +69,7 @@ pub struct ExportJgwResponse {
     post,
     path = "/v1/export/jgw",
     tag = "Utility",
-    request_body(content = ExportJgwParams, content_type = "application/json"),
+    request_body(content = ExportJgwResponse, content_type = "multipart/form-data"),
     responses(
         (status = 200, description = "JPEG + world file output", body = ExportJgwResponse),
         (status = 400, description = "Bad request"),
@@ -92,34 +81,42 @@ pub async fn export_jgw(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Extension(state): Extension<AppState>,
     headers: HeaderMap,
-    Json(params): Json<ExportJgwParams>,
+    mut multipart: axum::extract::Multipart,
 ) -> Result<Json<ExportJgwResponse>, AppError> {
-    // Clone now so we can move params into the async block without borrow conflict
-    let image_path = params.image_path.clone();
-    let image_path_for_check = &image_path;
-    if !image_path_for_check.starts_with("/tmp/") {
-        return Err(AppError::BadRequest("image_path must be in /tmp/".into()));
+    let mut image_bytes: Option<Bytes> = None;
+    let mut placement_json: Option<String> = None;
+
+    // Parse multipart fields
+    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))? {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "image" => {
+                image_bytes = Some(field.bytes().await.map_err(|e| AppError::BadRequest(format!("Failed to read image bytes: {e}")))?);
+            }
+            "placement" => {
+                placement_json = Some(field.text().await.map_err(|e| AppError::BadRequest(format!("Failed to read placement: {e}")))?);
+            }
+            _ => {}
+        }
     }
 
-    let file_size = std::fs::metadata(&image_path)
-        .map(|m| m.len() as usize)
-        .unwrap_or(0);
+    let image_bytes = image_bytes.ok_or_else(|| AppError::BadRequest("Missing required field: image".into()))?;
+    let placement_json = placement_json.ok_or_else(|| AppError::BadRequest("Missing required field: placement".into()))?;
 
+    let placement: Placement = serde_json::from_str(&placement_json)
+        .map_err(|e| AppError::BadRequest(format!("Invalid placement JSON: {e}")))?;
+
+    let file_size = image_bytes.len();
     let price = compute_price(file_size.max(1024));
     let t0 = Instant::now();
     metrics::record_request("export-jgw", "received");
 
-    // Clone request_id so we can move it into both payment_gate and the async block
-    let request_id_for_gate = request_id.clone();
-
     // Payment gate — skip if MCP key
-    payment_gate("export-jgw", file_size, price, &request_id_for_gate, &headers, &state).await?;
+    payment_gate("export-jgw", file_size, price, &request_id, &headers, &state).await?;
 
-    // Clone again for spawn_blocking since request_id is consumed by the return value
-    let request_id_for_block = request_id.clone();
-
+    let uuid = Uuid::new_v4().to_string();
     let result = tokio::task::spawn_blocking(move || {
-        run_export_jgw(&image_path, &params.placement, &request_id_for_block)
+        run_export_jgw(&uuid, &image_bytes, &placement)
     })
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
@@ -130,24 +127,33 @@ pub async fn export_jgw(
 
     Ok(Json(ExportJgwResponse {
         request_id,
-        jpeg_url: result.jpeg_url,
-        jgw_url: result.jgw_url,
+        jpeg_base64: result.jpeg_base64,
+        jgw_content: result.jgw_content,
     }))
 }
 
 struct ExportResult {
-    jpeg_url: String,
-    jgw_url: String,
+    jpeg_base64: String,
+    jgw_content: String,
 }
 
 fn run_export_jgw(
-    image_path: &str,
+    uuid: &str,
+    image_bytes: &[u8],
     placement: &Placement,
-    request_id: &str,
 ) -> Result<ExportResult, AppError> {
+    let input_path = format!("/tmp/{}_input.tif", uuid);
+
+    // Write uploaded bytes to temp input file
+    let mut input_file = std::fs::File::create(&input_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create input file: {e}")))?;
+    std::io::Write::write_all(&mut input_file, image_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write input file: {e}")))?;
+    drop(input_file);
+
     // Open GeoTIFF to get dimensions
-    let ds = Dataset::open(image_path)
-        .map_err(|e| AppError::BadRequest(format!("Cannot open {image_path}: {e}")))?;
+    let ds = gdal::Dataset::open(&input_path)
+        .map_err(|e| AppError::BadRequest(format!("Cannot open input raster: {e}")))?;
 
     let (width, height) = ds.raster_size();
 
@@ -165,14 +171,13 @@ fn run_export_jgw(
     let C = placement.lon;
     let F = placement.lat;
 
-    // Build base output name
-    let base = format!("/tmp/export_{}_{}x{}", request_id, width, height);
-    let jpeg_path = format!("{}.jpg", base);
-    let jgw_path = format!("{}.jgw", base);
+    // Build world file content (one value per line, no trailing newline expected by ESRI)
+    let jgw_content = format!(
+        "{:.15}\n{:.15}\n{:.15}\n{:.15}\n{:.15}\n{:.15}\n",
+        A, D, B, E, C, F
+    );
 
-    // Read first band of GeoTIFF and save as JPEG
-    // (This is a simple approach: read band as buffer, encode as JPEG)
-    // For multi-band, we'd need to composite or select first band
+    // Read first band of GeoTIFF and encode as JPEG
     let band = ds.rasterband(1)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Get band 1: {e}")))?;
 
@@ -186,28 +191,32 @@ fn run_export_jgw(
         None,
     )
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Read band: {e}")))?;
+    drop(ds);
 
     // Convert to image::GrayImage and encode as JPEG
     let img = image::GrayImage::from_raw(width as u32, height as u32, buf)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Create GrayImage failed")))?;
 
-    let jpeg_file = std::fs::File::create(&jpeg_path)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create JPEG: {e}")))?;
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(jpeg_file, 90);
-    encoder
-        .encode_image(&img)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("JPEG encode: {e}")))?;
+    let mut jpeg_bytes: Vec<u8> = Vec::new();
+    {
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(Cursor::new(&mut jpeg_bytes), 90);
+        encoder
+            .encode_image(&img)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("JPEG encode: {e}")))?;
+    }
 
-    // Write .jgw world file
-    let jgw_content = format!(
-        "{:.15}\n{:.15}\n{:.15}\n{:.15}\n{:.15}\n{:.15}\n",
-        A, D, B, E, C, F
-    );
-    std::fs::write(&jgw_path, jgw_content)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write JGW: {e}")))?;
+    // Clean up input file
+    let _ = std::fs::remove_file(&input_path);
+
+    let jpeg_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &jpeg_bytes);
 
     Ok(ExportResult {
-        jpeg_url: jpeg_path,
-        jgw_url: jgw_path,
+        jpeg_base64,
+        jgw_content,
     })
+}
+
+/// Registers the export/jgw routes.
+pub fn routes() -> Router {
+    Router::new().route("/v1/export/jgw", post(export_jgw))
 }
