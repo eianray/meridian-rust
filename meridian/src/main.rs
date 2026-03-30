@@ -30,7 +30,7 @@ use middleware::request_id::request_id_middleware;
 use routes::health::{health, HealthResponse};
 use routes::package::PackageGdbParams;
 use routes::reclassify::ReclassifyParams;
-use routes::{export_jgw::ExportJgwParams, georef::GeorefParams, pdf::PdfRasterizeResponse};
+use routes::pdf::PdfRasterizeResponse;
 use gis::{
     buffer::BufferParams,
     clip::ClipParams,
@@ -103,8 +103,6 @@ use gis::{
             ReclassifyParams,
             PackageGdbParams,
             PdfRasterizeResponse,
-            GeorefParams,
-            ExportJgwParams,
         )
     ),
     tags(

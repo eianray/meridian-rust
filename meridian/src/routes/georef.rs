@@ -116,8 +116,9 @@ pub async fn raster_georeference(
     payment_gate("raster-georeference", file_size, price, &request_id, &headers, &state).await?;
 
     let uuid = Uuid::new_v4().to_string();
+    let request_id_clone = request_id.clone();
     let result = tokio::task::spawn_blocking(move || {
-        run_georef(&uuid, &image_bytes, &gcps, &request_id, &output_crs)
+        run_georef(&uuid, &image_bytes, &gcps, &request_id_clone, &output_crs)
     })
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
