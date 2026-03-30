@@ -24,10 +24,10 @@ pub struct GCPInput {
     pub pixel_x: f64,
     /// Pixel Y coordinate (row)
     pub pixel_y: f64,
-    /// Longitude (X in map units)
-    pub lon: f64,
-    /// Latitude (Y in map units)
-    pub lat: f64,
+    /// X in map units (longitude)
+    pub geo_x: f64,
+    /// Y in map units (latitude)
+    pub geo_y: f64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -46,8 +46,8 @@ pub struct GeorefResponse {
 /// file path.
 ///
 /// **Input (multipart/form-data):**
-/// - `image`: raw TIFF/raster bytes
-/// - `gcps`: JSON string — array of `{"pixel_x": N, "pixel_y": N, "lon": N, "lat": N}`
+/// - `file`: raw TIFF/raster bytes
+/// - `gcps`: JSON string — array of `{"pixel_x": N, "pixel_y": N, "geo_x": N, "geo_y": N}`
 /// - `output_crs`: optional string, default `"EPSG:4326"`
 ///
 /// **Output:** raw georeferenced TIFF as `application/octet-stream`
@@ -78,8 +78,8 @@ pub async fn raster_georeference(
     while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))? {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
-            "image" => {
-                image_bytes = Some(field.bytes().await.map_err(|e| AppError::BadRequest(format!("Failed to read image bytes: {e}")))?);
+            "file" => {
+                image_bytes = Some(field.bytes().await.map_err(|e| AppError::BadRequest(format!("Failed to read file bytes: {e}")))?);
             }
             "gcps" => {
                 gcps_json = Some(field.text().await.map_err(|e| AppError::BadRequest(format!("Failed to read gcps: {e}")))?);
@@ -94,7 +94,7 @@ pub async fn raster_georeference(
         }
     }
 
-    let image_bytes = image_bytes.ok_or_else(|| AppError::BadRequest("Missing required field: image".into()))?;
+    let image_bytes = image_bytes.ok_or_else(|| AppError::BadRequest("Missing required field: file".into()))?;
     let gcps_json = gcps_json.ok_or_else(|| AppError::BadRequest("Missing required field: gcps".into()))?;
 
     let gcps: Vec<GCPInput> = serde_json::from_str(&gcps_json)
@@ -177,8 +177,8 @@ fn run_georef(
         translate_args.push("-gcp".to_string());
         translate_args.push(format!("{:.6}", g.pixel_x));
         translate_args.push(format!("{:.6}", g.pixel_y));
-        translate_args.push(format!("{:.10}", g.lon));
-        translate_args.push(format!("{:.10}", g.lat));
+        translate_args.push(format!("{:.10}", g.geo_x));
+        translate_args.push(format!("{:.10}", g.geo_y));
     }
     translate_args.push(input_path.clone());
     translate_args.push(tmp_gtiff.to_str().unwrap().to_string());
