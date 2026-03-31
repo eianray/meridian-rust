@@ -25,7 +25,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use billing::PaymentRequired;
 use routes::batch::{BatchOperation, BatchResponse, BatchResult};
-use middleware::rate_limit::{mcp_rate_limit_middleware, rate_limit_middleware, IpRateLimiters};
+use middleware::rate_limit::{rate_limit_middleware, IpRateLimiters};
 use middleware::request_id::request_id_middleware;
 use routes::health::{health, HealthResponse};
 use routes::package::PackageGdbParams;
@@ -161,13 +161,8 @@ fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>) ->
     // Shared rate limiter state: 60 req/min per IP (standard GIS traffic)
     let limiters = IpRateLimiters::new_60rpm();
 
-    // MCP rate limiter: 100 req/hour per IP (only fires when X-Mcp-Key header is present)
-    let mcp_limiters = IpRateLimiters::new_100rph();
-
     // GIS routes with rate limiting applied (middleware runs on all /v1/* routes)
     let gis_routes = routes::gis::router()
-        .layer(axum_middleware::from_fn(mcp_rate_limit_middleware))
-        .layer(axum::extract::Extension(mcp_limiters))
         .layer(axum_middleware::from_fn(rate_limit_middleware))
         .layer(axum::extract::Extension(limiters.clone()));
 
