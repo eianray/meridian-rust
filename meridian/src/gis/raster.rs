@@ -652,6 +652,8 @@ fn run_raster_calc_sync(
     let mut width = 0usize;
     let mut height = 0usize;
 
+    // First pass: open datasets and validate total input size before reading band data
+    let mut total_bytes: usize = 0;
     for (letter, bytes) in rasters_data {
         let in_path = tmp.path().join(format!("{}.tif", letter));
         std::fs::write(&in_path, bytes)
@@ -661,6 +663,11 @@ fn run_raster_calc_sync(
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Open {}: {}", letter, e)))?;
 
         let (w, h) = ds.raster_size();
+        let size_bytes = w * h * 4; // f32 = 4 bytes per pixel
+        total_bytes += size_bytes;
+        if total_bytes > 524_288_000 {
+            return Err(AppError::BadRequest("Total raster input size exceeds 500MB limit".into()));
+        }
         if width == 0 && height == 0 {
             width = w;
             height = h;

@@ -14,6 +14,7 @@ use crate::{
     middleware::request_id::RequestId,
     AppState,
 };
+use constant_time_eq::constant_time_eq;
 
 const OP_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -294,8 +295,10 @@ pub(crate) async fn payment_gate(
         let provided_key = headers
             .get("x-mcp-key")
             .and_then(|v| v.to_str().ok());
-        if provided_key == Some(expected_key.as_str()) {
-            return Ok(());
+        if let Some(pk) = provided_key {
+            if constant_time_eq(pk.as_bytes(), expected_key.as_bytes()) {
+                return Ok(());
+            }
         }
     }
 

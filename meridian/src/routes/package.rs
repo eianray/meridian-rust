@@ -1,5 +1,6 @@
 use axum::{extract::Extension, http::HeaderMap, Json};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use regex::Regex;
 use serde::Deserialize;
 use std::time::Instant;
 use tempfile::TempDir;
@@ -215,7 +216,29 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)], source_crs: &str) -> Result<Vec<
         if layer_idx == 0 {
             cmd.arg("-overwrite");
         }
-        cmd.arg("-nln").arg(layer_name);
+        // Validate/sanitize layer name before passing to ogr2ogr
+        let safe_name_re = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$").unwrap();
+        let layer_name = if !safe_name_re.is_match(layer_name) {
+            let sanitized: String = layer_name
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+                .take(63)
+                .collect();
+            if sanitized
+                .chars()
+                .next()
+                .map(|c| c.is_alphabetic() || c == '_')
+                .unwrap_or(false)
+            {
+                sanitized
+            } else {
+                format!("_{}", &sanitized[..sanitized.len().min(62)])
+            }
+        } else {
+            layer_name.clone()
+        };
+
+        cmd.arg("-nln").arg(&layer_name);
         cmd.arg("-nlt").arg("PROMOTE_TO_MULTI");
 
         if layer_idx > 0 {

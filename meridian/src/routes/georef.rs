@@ -220,6 +220,8 @@ fn run_georef(
     }
 
     // Step 2: gdalwarp to create COG from the GCP-affixed TIFF
+    // Normalize whitespace before validation
+    let output_crs = output_crs.trim().to_string();
     // Allow only alphanumeric, colon, plus, hyphen (covers EPSG:XXXX, +proj=..., etc.)
     if !output_crs.is_empty() && !output_crs.chars().all(|c| c.is_alphanumeric() || ":/+=_-. ".contains(c)) {
         return Err(AppError::BadRequest("Invalid output_crs value".into()));
@@ -227,7 +229,7 @@ fn run_georef(
     let t_srs = if output_crs.is_empty() || output_crs == "EPSG:4326" {
         "EPSG:4326"
     } else {
-        output_crs
+        output_crs.as_str()
     };
 
     let warp_status = Command::new("gdalwarp")

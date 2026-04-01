@@ -227,7 +227,7 @@ pub async fn batch(
     if let Some(db) = &state.db {
         let x_payment = headers.get("x-payment").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
         let status = if state.config.dev_mode { "dev" } else { "ok" };
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO operations_log (request_id, operation, file_size_bytes, price_usd, tx_signature, status) \
              VALUES ($1, 'batch', $2, $3, $4, $5)"
         )
@@ -237,7 +237,9 @@ pub async fn batch(
         .bind(x_payment.as_deref())
         .bind(status)
         .execute(db)
-        .await;
+        .await {
+            tracing::warn!("ops_log insert failed: {e}");
+        }
     }
 
     metrics::record_request("batch", "ok");
@@ -382,7 +384,7 @@ async fn process_single_op(
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
         }
         BatchOpType::Dissolve => {
-            let dissolve_field = op.dissolve_field.clone();
+            let dissolve_field = op.dissolve_field.as_ref().filter(|f| !f.is_empty()).cloned();
             timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
                 do_dissolve_blocking(geojson_str, dissolve_field, src_crs)
             }))

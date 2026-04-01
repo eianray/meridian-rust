@@ -8,6 +8,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     num::NonZeroU32,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -29,9 +30,14 @@ type Limiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 /// Per-IP rate limiter state — shared across all requests via `Extension`.
 #[derive(Clone)]
 pub struct IpRateLimiters {
-    inner: Arc<Mutex<HashMap<IpAddr, Arc<Limiter>>>>,
+    /// Map of IP → (Limiter, last_seen Instant)
+    inner: Arc<Mutex<HashMap<IpAddr, (Arc<Limiter>, Instant)>>>,
     quota: Quota,
 }
+
+const MAX_ENTRIES: usize = 10_000;
+const EVICTION_CAP: usize = MAX_ENTRIES;
+const TTL: Duration = Duration::from_secs(3600); // 1 hour
 
 impl IpRateLimiters {
     /// Create a new limiter registry with 60 requests/minute per IP.
@@ -43,11 +49,45 @@ impl IpRateLimiters {
         }
     }
 
+    fn evict_stale(&self, map: &mut HashMap<IpAddr, (Arc<Limiter>, Instant)>) {
+        let now = Instant::now();
+        map.retain(|_, (_, last_seen)| {
+            now.duration_since(*last_seen) < TTL
+        });
+    }
+
+    fn evict_oldest_pct(&self, map: &mut HashMap<IpAddr, (Arc<Limiter>, Instant)>, pct: f64) {
+        let count = ((map.len() as f64) * pct).ceil() as usize;
+        if count == 0 {
+            return;
+        }
+        // Sort by last_seen ascending and retain only the newest entries
+        let mut entries: Vec<_> = map.iter().collect();
+        entries.sort_by_key(|(_, (_, last_seen))| *last_seen);
+        let threshold_idx = entries.len().saturating_sub(count);
+        let threshold = entries.get(threshold_idx).map(|(_, (_, t))| *t).unwrap_or_else(Instant::now);
+        map.retain(|_, (_, last_seen)| *last_seen >= threshold);
+    }
+
     fn limiter_for(&self, ip: IpAddr) -> Arc<Limiter> {
         let mut map = self.inner.lock().unwrap();
-        map.entry(ip)
-            .or_insert_with(|| Arc::new(RateLimiter::direct(self.quota)))
-            .clone()
+        self.evict_stale(&mut map);
+        if map.len() > EVICTION_CAP {
+            self.evict_oldest_pct(&mut map, 0.20);
+        }
+        let now = Instant::now();
+        match map.entry(ip) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                let (limiter, last_seen) = e.into_mut();
+                *last_seen = now;
+                limiter.clone()
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let limiter = Arc::new(RateLimiter::direct(self.quota));
+                e.insert((limiter.clone(), now));
+                limiter
+            }
+        }
     }
 
     /// Returns Ok if request is allowed, Err(retry_after_secs) if rate-limited.

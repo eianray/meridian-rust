@@ -110,7 +110,7 @@ pub async fn pdf_rasterize(
         }
     }
 
-    let pdf_bytes = pdf_bytes.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
+    let pdf_bytes = pdf_bytes.ok_or_else(|| -> AppError { AppError::BadRequest(String::from("Missing 'file' field")) })?;
 
     let pages = render_pdf_pages(&pdf_bytes, dpi).await?;
 

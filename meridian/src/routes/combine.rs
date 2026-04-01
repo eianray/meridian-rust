@@ -56,7 +56,7 @@ pub async fn append(
     let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
         do_append(str_a, str_b)
     })).await
-        .map_err(|_| AppError::BadRequest("Timed out".into()))?
+        .map_err(|_| AppError::Timeout)?
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?
         .map_err(|e: AppError| e)?;
     metrics::record_request("append", "ok");
@@ -84,7 +84,7 @@ pub async fn merge(
     let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
         do_merge(str_a, str_b)
     })).await
-        .map_err(|_| AppError::BadRequest("Timed out".into()))?
+        .map_err(|_| AppError::Timeout)?
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?
         .map_err(|e: AppError| e)?;
     metrics::record_request("merge", "ok");
@@ -136,7 +136,7 @@ pub async fn spatial_join(
     let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
         do_spatial_join(str_a, str_b, how, predicate)
     })).await
-        .map_err(|_| AppError::BadRequest("Timed out".into()))?
+        .map_err(|_| AppError::Timeout)?
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?
         .map_err(|e: AppError| e)?;
     metrics::record_request("spatial_join", "ok");

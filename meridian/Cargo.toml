@@ -54,6 +54,12 @@ uuid = { version = "1", features = ["v4"] }
 # Binary data handling
 bytes = "1"
 
+# Constant-time comparison (MCP key)
+constant_time_eq = "0.3"
+
+# Regex (layer name validation)
+regex = "1"
+
 # Metrics / observability
 metrics = "0.21"
 metrics-exporter-prometheus = "0.12"
