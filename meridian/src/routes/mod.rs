@@ -8,7 +8,6 @@ pub mod gis;
 pub mod health;
 pub mod package;
 pub mod pdf;
-pub mod plss;
 pub mod raster;
 pub mod reclassify;
 pub mod schema;
