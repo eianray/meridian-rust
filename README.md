@@ -2,7 +2,8 @@
 
 Production-focused Rust rewrite of the Meridian GIS API, with x402/Base USDC payment enforcement through a facilitator-backed settlement flow.
 
-**Status:** v0.5.0 — Rust is the canonical Meridian implementation; core GIS + vector tiles + DEM/raster shipped; x402/Base payment flow live via Coinbase CDP facilitator  
+**Status:** v0.5.0 — Rust is the canonical Meridian implementation; core GIS + vector tiles + DEM/raster shipped; x402 implemented but currently disabled (X402_DISABLED=true)  
+**Last updated:** 2026-04-01  
 **Reference:** [Meridian v0.7.0](../meridian-api/) — legacy Python/FastAPI service kept for compatibility
 
 ---
@@ -109,11 +110,17 @@ The Rust service and the Python service are close in shape, but not at full beha
 | `POST /v1/reclassify` | Reclassify raster pixel values by range mapping |
 | `POST /v1/package/gdb` | Package one or more vector layers into a `.gdb` |
 
+### PDF / Raster Georeferencing
+| Endpoint | Description |
+|----------|-------------|
+| `POST /v1/pdf/rasterize` | Rasterize PDF to per-page JPEG images via pdftoppm; returns `{page_count, pages[{page, width, height, data}]}` |
+| `POST /v1/raster-georeference` | Georeference image via GCPs (`pixel_x, pixel_y, geo_x, geo_y`); returns binary GeoTIFF |
+| `POST /v1/export/jgw` | Compute JGW world file from GCPs via least-squares affine fit; returns `{jpeg_base64, jgw_content}` |
+
 ### Reference (free)
 | Endpoint | Description |
 |----------|-------------|
 | `GET /v1/epsg/search` | Search bundled EPSG registry by name or code |
-| `POST /v1/plss/lookup` | PLSS section polygon lookup by legal description (AK) |
 
 ### Batch
 | Endpoint | Description |
@@ -131,11 +138,15 @@ The legacy Python service also exposes a separate pricing endpoint; that endpoin
 
 ## Payment Flow
 
+> **Note:** x402 payments are currently **disabled** on production (`X402_DISABLED=true` in `.env`). All endpoints are accessible via `X-Mcp-Key` auth-bypass with no quota. To re-enable, remove `X402_DISABLED` and restart.
+
 1. POST to any paid endpoint → `402 Payment Required` with x402 payment requirements
 2. Client signs an EIP-3009 USDC authorization on Base
 3. Retry with `X-PAYMENT: <base64-encoded-payment-payload>`
 4. Facilitator validates and settles `transferWithAuthorization()` on Base mainnet
 5. Meridian trusts the facilitator result, records operation/payment audit metadata, and returns the processed result
+
+**Facilitator:** Coinbase CDP (`https://api.cdp.coinbase.com/platform/v2/x402`), cutover 2026-03-28.
 
 ### Facilitator boundary
 

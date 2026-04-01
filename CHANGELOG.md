@@ -2,6 +2,31 @@
 
 ---
 
+## v0.5.1 — New Endpoints, PLSS Removal, Rate Limit Removed (2026-04-01)
+
+### New Endpoints
+- `POST /v1/pdf/rasterize` — PDF to JPEG pages via pdftoppm (poppler-utils); replaces pdfium-render (not pure Rust)
+- `POST /v1/raster-georeference` — GCP-based georeferencing; accepts multipart file + gcps JSON + output_crs; returns binary GeoTIFF
+- `POST /v1/export/jgw` — JGW world file from GCPs via least-squares affine fit; returns jpeg_base64 + jgw_content
+
+### Removed
+- `POST /v1/plss/lookup` — Removed; frontend (PMI Workflow Builder) now queries BLM ArcGIS FeatureServer directly
+- PLSS data files removed from Hetzner (`/opt/meridian-rust/plss-data/`, 1.2GB freed)
+- MCP rate limiter (100 req/hour) removed from `main.rs` — X-Mcp-Key is auth-bypass only
+
+### Configuration
+- `X402_DISABLED=true` set in production `.env` — payments disabled by default; remove to re-enable
+- Field names standardized: `image` → `file`, `lon/lat` → `geo_x/geo_y` in georef and jgw endpoints
+
+### Fixes
+- Temp file cleanup on all error paths in `pdf.rs` and `georef.rs`
+- Spawn blocking timeout added to `georef.rs` and `export_jgw.rs`
+- 50MB size limit enforced on image upload in `georef.rs`
+- `output_crs` sanitized with character whitelist before passing to gdalwarp
+- X402 gate inverted to use `X402_DISABLED` env var (payments off by default)
+
+---
+
 ## v0.5.0 — Coinbase CDP Facilitator (2026-03-17)
 
 ### Payment Infrastructure
