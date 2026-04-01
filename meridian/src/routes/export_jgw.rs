@@ -51,7 +51,6 @@ pub struct ExportJgwResponse {
 /// **Input (multipart/form-data):**
 /// - `file`: raw raster bytes (GeoTIFF or any GDAL-readable format)
 /// - `gcps`: JSON string — array of `{"pixel_x": N, "pixel_y": N, "geo_x": N, "geo_y": N}`
-/// - `output_crs`: optional string, default `"EPSG:4326"`
 ///
 /// **Output (JSON):**
 /// ```json
@@ -89,7 +88,6 @@ pub async fn export_jgw(
 ) -> Result<Json<ExportJgwResponse>, AppError> {
     let mut image_bytes: Option<Bytes> = None;
     let mut gcps_json: Option<String> = None;
-    let mut output_crs: String = "EPSG:4326".to_string();
 
     // Parse multipart fields
     while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))? {
@@ -101,12 +99,7 @@ pub async fn export_jgw(
             "gcps" => {
                 gcps_json = Some(field.text().await.map_err(|e| AppError::BadRequest(format!("Failed to read gcps: {e}")))?);
             }
-            "output_crs" => {
-                output_crs = field.text().await.map_err(|e| AppError::BadRequest(format!("Failed to read output_crs: {e}")))?.trim().to_string();
-                if output_crs.is_empty() {
-                    output_crs = "EPSG:4326".to_string();
-                }
-            }
+            "output_crs" => { let _ = field.text().await; }
             _ => {}
         }
     }
@@ -127,7 +120,7 @@ pub async fn export_jgw(
 
     let uuid = Uuid::new_v4().to_string();
     let result = timeout(OP_TIMEOUT, tokio::task::spawn_blocking(move || {
-        run_export_jgw(&uuid, &image_bytes, &gcps, &output_crs)
+        run_export_jgw(&uuid, &image_bytes, &gcps)
     }))
     .await
     .map_err(|_| AppError::Timeout)?
@@ -153,7 +146,6 @@ fn run_export_jgw(
     uuid: &str,
     image_bytes: &[u8],
     gcps: &[GCPInput],
-    _output_crs: &str,
 ) -> Result<ExportResult, AppError> {
     let input_path = format!("/tmp/{}_input.tif", uuid);
 
