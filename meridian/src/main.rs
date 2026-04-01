@@ -111,14 +111,13 @@ struct ApiDoc;
 
 // ── Metrics endpoint ───────────────────────────────────────────────────────────
 
-const METRICS_TOKEN: &str = "9c24464c1c0b712fb5ad26aecfa9b0f4d47526583ea8b704";
-
 async fn metrics_handler(
+    metrics_token: String,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     axum::extract::Extension(handle): axum::extract::Extension<PrometheusHandle>,
 ) -> impl axum::response::IntoResponse {
     match params.get("token") {
-        Some(t) if t == METRICS_TOKEN => axum::response::Response::builder()
+        Some(t) if *t == metrics_token => axum::response::Response::builder()
             .status(200)
             .body(axum::body::Body::from(handle.render()))
             .unwrap(),
@@ -133,10 +132,10 @@ async fn metrics_handler(
 
 #[cfg_attr(not(test), allow(dead_code))]
 fn build_router(state: AppState) -> Router {
-    build_router_with_metrics(state, None)
+    build_router_with_metrics(state, None, String::new())
 }
 
-fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>) -> Router {
+fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>, metrics_token: String) -> Router {
     use tower_http::cors::AllowHeaders;
     use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
     use axum::http::HeaderName;
@@ -186,8 +185,11 @@ fn build_router_with_metrics(state: AppState, prom: Option<PrometheusHandle>) ->
 
     // Attach /metrics if a Prometheus handle was provided
     if let Some(handle) = prom {
+        let token = metrics_token;
         router = router
-            .route("/metrics", get(metrics_handler))
+            .route("/metrics", get(move |q, e| async move {
+                metrics_handler(token, q, e).await
+            }))
             .layer(axum::extract::Extension(handle));
     }
 
@@ -246,7 +248,10 @@ async fn main() -> anyhow::Result<()> {
         "Meridian starting"
     );
 
-    let app = build_router_with_metrics(state, Some(prom_handle));
+    let metrics_token = std::env::var("METRICS_TOKEN")
+        .unwrap_or_else(|_| "9c24464c1c0b712fb5ad26aecfa9b0f4d47526583ea8b704".to_string());
+
+    let app = build_router_with_metrics(state, Some(prom_handle), metrics_token);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     info!(%addr, "Listening");

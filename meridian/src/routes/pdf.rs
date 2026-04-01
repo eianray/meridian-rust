@@ -18,6 +18,8 @@ use crate::{
 
 const MAX_PDF_BYTES: usize = 50 * 1024 * 1024; // 50 MB
 const DEFAULT_DPI: u32 = 150;
+const MAX_PAGES: usize = 100;
+const MAX_OUTPUT_BYTES: usize = 100 * 1024 * 1024; // 100 MB total base64 output
 
 #[derive(Serialize, ToSchema)]
 pub struct PdfRasterizeResponse {
@@ -132,8 +134,6 @@ async fn render_pdf_pages(pdf_bytes: &[u8], dpi: u32) -> Result<Vec<PageRender>,
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Write temp PDF: {e}")))?;
 
     // Run pdftoppm to render all pages as JPEGs
-    // pdftoppm -r <dpi> -jpeg -jpegopt quality=85 <pdf_path> <prefix>
-    // produces: <prefix>-1.jpg, <prefix>-2.jpg, ...
     let output = Command::new("pdftoppm")
         .args([
             "-r", &dpi.to_string(),
@@ -143,63 +143,96 @@ async fn render_pdf_pages(pdf_bytes: &[u8], dpi: u32) -> Result<Vec<PageRender>,
             &prefix,
         ])
         .output()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("pdftoppm spawn: {e}")))?;
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&pdf_path);
+            AppError::Internal(anyhow::anyhow!("pdftoppm spawn: {e}"))
+        })?;
 
     if !output.status.success() {
+        let _ = std::fs::remove_file(&pdf_path);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(AppError::Internal(anyhow::anyhow!("pdftoppm failed: {stderr}")));
     }
 
-    // Collect rendered page files
-    let mut page_files: Vec<PathBuf> = Vec::new();
-    let read_result = std::fs::read_dir("/tmp").map_err(|e| AppError::Internal(anyhow::anyhow!("Read /tmp: {e}")));
-    let _ = std::fs::remove_file(&pdf_path); // cleanup regardless
-    for entry in read_result?
-    {
-        let entry = entry.map_err(|e| AppError::Internal(anyhow::anyhow!("Read dir entry: {e}")))?;
+    // Collect rendered page file paths
+    let mut page_paths: Vec<PathBuf> = Vec::new();
+    let entries = match std::fs::read_dir("/tmp") {
+        Ok(e) => e,
+        Err(e) => {
+            let _ = std::fs::remove_file(&pdf_path);
+            return Err(AppError::Internal(anyhow::anyhow!("Read /tmp: {e}")));
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                let _ = std::fs::remove_file(&pdf_path);
+                return Err(AppError::Internal(anyhow::anyhow!("Read dir entry: {e}")));
+            }
+        };
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
         if name.starts_with(&format!("{id}_page-")) && name.ends_with(".jpg") {
-            page_files.push(path);
+            page_paths.push(path);
         }
     }
 
-    if page_files.is_empty() {
+    if page_paths.is_empty() {
+        let _ = std::fs::remove_file(&pdf_path);
         return Err(AppError::Internal(anyhow::anyhow!("pdftoppm produced no output files")));
     }
 
     // Sort by page number (filename format: <id>_page-<N>.jpg)
-    page_files.sort_by(|a, b| {
-        let num_a = a.file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|n| n.split('-').nth(1))
-            .and_then(|n| n.strip_suffix(".jpg"))
-            .unwrap_or("0")
-            .parse::<usize>()
-            .unwrap_or(0);
-        let num_b = b.file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|n| n.split('-').nth(1))
-            .and_then(|n| n.strip_suffix(".jpg"))
-            .unwrap_or("0")
-            .parse::<usize>()
-            .unwrap_or(0);
-        num_a.cmp(&num_b)
+    page_paths.sort_by(|a, b| {
+        let num = |p: &PathBuf| -> usize {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.split('-').nth(1))
+                .and_then(|n| n.strip_suffix(".jpg"))
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0)
+        };
+        num(a).cmp(&num(b))
     });
 
-    let mut pages = Vec::with_capacity(page_files.len());
+    // FIX 1: Page count cap — prevents huge PDFs from exhausting RAM
+    if page_paths.len() > MAX_PAGES {
+        let _ = std::fs::remove_file(&pdf_path);
+        for p in &page_paths { let _ = std::fs::remove_file(p); }
+        return Err(AppError::BadRequest(format!(
+            "PDF exceeds {MAX_PAGES} page limit ({} pages)", page_paths.len()
+        )));
+    }
 
-    for path in &page_files {
-        let jpeg_bytes = tokio::fs::read(path)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Read JPEG: {e}")))?;
+    // FIX 2: Read and encode pages — clean up all temp files on any error path
+    let mut pages = Vec::with_capacity(page_paths.len());
+    let mut total_bytes: usize = 0;
 
-        let (width, height) = read_jpeg_dimensions(&jpeg_bytes)
-            .unwrap_or((0, 0));
+    for path in &page_paths {
+        let jpeg_bytes = match fs::read(path).await {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = std::fs::remove_file(&pdf_path);
+                for p in &page_paths { let _ = std::fs::remove_file(p); }
+                return Err(AppError::Internal(anyhow::anyhow!("Read JPEG: {e}")));
+            }
+        };
 
+        let (width, height) = read_jpeg_dimensions(&jpeg_bytes).unwrap_or((0, 0));
         let data = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+
+        // FIX 1: Total output byte cap — prevents RAM exhaustion from high-DPI renders
+        total_bytes += data.len();
+        if total_bytes > MAX_OUTPUT_BYTES {
+            let _ = std::fs::remove_file(&pdf_path);
+            for p in &page_paths { let _ = std::fs::remove_file(p); }
+            return Err(AppError::Internal(anyhow::anyhow!("PDF output too large (exceeds 100 MB)")));
+        }
 
         let page_num = path.file_name()
             .and_then(|n| n.to_str())
@@ -209,31 +242,23 @@ async fn render_pdf_pages(pdf_bytes: &[u8], dpi: u32) -> Result<Vec<PageRender>,
             .parse::<usize>()
             .unwrap_or(0);
 
-        pages.push(PageRender {
-            page: page_num,
-            width,
-            height,
-            data,
-        });
+        pages.push(PageRender { page: page_num, width, height, data });
     }
 
-    // Clean up temp files
-    let _ = fs::remove_file(&pdf_path).await;
-    for path in &page_files {
-        let _ = fs::remove_file(path).await;
-    }
+    // FIX 2: Guaranteed cleanup on success path
+    let _ = std::fs::remove_file(&pdf_path);
+    for p in &page_paths { let _ = std::fs::remove_file(p); }
 
     Ok(pages)
 }
 
 /// Read JPEG dimensions from bytes without the `image` crate.
-/// Format: SOI (0xFF 0xD8) → segment(s) → SOF0 (0xFF 0xC0) → length → precision → height width
 fn read_jpeg_dimensions(jpeg_bytes: &[u8]) -> Option<(u32, u32)> {
     if jpeg_bytes.len() < 10 {
         return None;
     }
     if jpeg_bytes[0] != 0xFF || jpeg_bytes[1] != 0xD8 {
-        return None; // Not a JPEG
+        return None;
     }
 
     let mut i = 2;
@@ -244,7 +269,6 @@ fn read_jpeg_dimensions(jpeg_bytes: &[u8]) -> Option<(u32, u32)> {
         }
         let marker = jpeg_bytes[i + 1];
 
-        // SOF0, SOF1, SOF2 markers all have the same structure
         if matches!(marker, 0xC0 | 0xC1 | 0xC2) {
             let length = ((jpeg_bytes[i + 2] as usize) << 8) | (jpeg_bytes[i + 3] as usize);
             if length < 9 || i + 8 >= jpeg_bytes.len() {
@@ -255,7 +279,6 @@ fn read_jpeg_dimensions(jpeg_bytes: &[u8]) -> Option<(u32, u32)> {
             return Some((width, height));
         }
 
-        // Skip to next marker
         if i + 3 >= jpeg_bytes.len() {
             break;
         }

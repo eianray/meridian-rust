@@ -184,7 +184,7 @@ fn run_georef(
     };
 
     let tmp_gtiff = tmp.path().join("georef_tmp.tif");
-    let out_path = format!("/tmp/georef_{}_{}.tif", request_id.replace("-", "_"), std::process::id());
+    let out_path = tmp.path().join("georef_out.tif");
 
     // Build gdal_translate args with all GCPs
     let mut translate_args: Vec<String> = vec!["-of".to_string(), "GTiff".to_string()];
@@ -204,17 +204,16 @@ fn run_georef(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("gdal_translate exec: {e}")))?;
 
     if !translate_status.success() {
-        // Clean up input and output
+        // Clean up input — out_path is inside tmp and auto-cleaned
         let _ = std::fs::remove_file(&input_path);
-        let _ = std::fs::remove_file(&out_path);
         return Err(AppError::Internal(anyhow::anyhow!(
             "gdal_translate failed with status: {}", translate_status
         )));
     }
 
     if !tmp_gtiff.exists() {
+        // Clean up input — out_path is inside tmp and auto-cleaned
         let _ = std::fs::remove_file(&input_path);
-        let _ = std::fs::remove_file(&out_path);
         return Err(AppError::Internal(anyhow::anyhow!(
             "gdal_translate completed but temp output not created"
         )));
@@ -255,14 +254,14 @@ fn run_georef(
         )));
     }
 
-    if !std::path::Path::new(&out_path).exists() {
+    if !out_path.exists() {
         return Err(AppError::Internal(anyhow::anyhow!(
-            "gdalwarp completed but output not created at {out_path}"
+            "gdalwarp completed but output not created at {:?}", out_path
         )));
     }
 
     Ok(GeorefResult {
-        cog_url: out_path,
+        cog_url: out_path.to_string_lossy().to_string(),
     })
 }
 
