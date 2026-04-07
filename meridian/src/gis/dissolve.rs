@@ -256,6 +256,16 @@ fn do_dissolve(
             ));
         }
 
+        // MakeValid cleans up sliver polygons and topology errors introduced
+        // by floating-point imprecision in shared boundaries from GDALPolygonize.
+        let valid_raw = unsafe { gdal_sys::OGR_G_MakeValid(unioned_raw) };
+        unsafe { gdal_sys::OGR_G_DestroyGeometry(unioned_raw) };
+        let unioned_raw = if valid_raw.is_null() {
+            return Err(AppError::Internal(anyhow::anyhow!("OGR_G_MakeValid failed")));
+        } else {
+            valid_raw
+        };
+
         // Export to GeoJSON via C API, then free the raw geometry
         let geojson_cstr = unsafe {
             let ptr = gdal_sys::OGR_G_ExportToJson(unioned_raw);
