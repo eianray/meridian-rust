@@ -5,11 +5,14 @@ use crate::routes::{
     batch::batch,
     combine::{append, merge, spatial_join},
     convert::convert,
+    export_dxf::export_dxf,
     export_jgw::export_jgw,
+    export_kml::export_kml,
+    export_shapefile::export_shapefile,
     georef::raster_georeference,
     package::package_gdb,
     pdf::pdf_rasterize,
-    raster::{aspect, color_relief, contours, hillshade, mosaic, raster_calc, raster_convert, raster_to_vector, raster_warp, roughness, slope},
+    raster::{aspect, color_relief, contours, fetch_elevation_s3, hillshade, mosaic, raster_calc, raster_convert, raster_to_vector, raster_warp, roughness, slope},
     reclassify::reclassify,
     schema::{repair, schema, validate},
     topology::{difference, intersect, union},
@@ -77,4 +80,9 @@ pub fn router() -> Router {
         // DrawBridge GIS endpoints
         .route("/v1/raster-georeference", post(raster_georeference))
         .route("/v1/export/jgw", post(export_jgw))
+        .route("/v1/export/dxf", post(export_dxf))
+        .route("/v1/export/kml", post(export_kml))
+        .route("/v1/export/shapefile", post(export_shapefile))
+        // Alaska raw IfSAR S3 elevation fetch
+        .route("/v1/elevation/fetch-s3", post(fetch_elevation_s3))
 }

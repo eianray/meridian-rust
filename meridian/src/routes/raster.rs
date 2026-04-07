@@ -2,6 +2,7 @@ use axum::{extract::Extension, http::HeaderMap, Json};
 use std::collections::BTreeMap;
 use std::time::Instant;
 use utoipa::ToSchema;
+use std::path::PathBuf;
 
 use crate::{
     error::AppError,
@@ -862,4 +863,204 @@ fn run_raster_warp_sync(input_bytes: &[u8], target_crs: &str) -> Result<crate::g
         filename: "warped.tif".into(),
         mime_type: "image/tiff".to_string(),
     })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Alaska DGGS / USGS S3 tile lookup
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Returns (project_name, s3_url) for the Alaska IfSAR tile covering the given WGS84 point.
+/// Hardcoded grid for Alaska Mid Accuracy DEM 6 (5m IfSAR, EPSG:3338).
+fn lookup_ak_ifsar_tile(lng: f64, lat: f64) -> Option<(&'static str, &'static str)> {
+    // Each entry: (west, east, south, north, project, s3_url)
+    const TILES: &[(
+        f64, f64, f64, f64, &str, &str,
+    )] = &[
+        (
+            -153.04, -151.91, 65.98, 67.01,
+            "AK_IFSAR-D6-L3-C114_2013",
+            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C114_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
+        ),
+        (
+            -155.50, -153.04, 65.98, 67.01,
+            "AK_IFSAR-D6-L3-C109_2013",
+            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C109_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
+        ),
+        (
+            -151.91, -150.77, 65.98, 67.01,
+            "AK_IFSAR-D6-L3-C137_2013",
+            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C137_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
+        ),
+        (
+            -150.77, -149.63, 65.98, 67.01,
+            "AK_IFSAR-D6-L3-C163_2013",
+            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C163_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
+        ),
+    ];
+
+    for &(w, e, s, n, project, url) in TILES {
+        if lng >= w && lng <= e && lat >= s && lat <= n {
+            return Some((project, url));
+        }
+    }
+    None
+}
+
+/// Returns the local cache path for a given tile project name.
+/// Cache lives in /tmp/meridian_tile_cache/<project>.tif
+/// 30-day TTL enforced by checking file mtime.
+fn tile_cache_path(project: &str) -> PathBuf {
+    let dir = PathBuf::from("/tmp/meridian_tile_cache");
+    std::fs::create_dir_all(&dir).ok();
+    dir.join(format!("{}.tif", project))
+}
+
+fn tile_cache_valid(path: &PathBuf) -> bool {
+    if !path.exists() { return false; }
+    match std::fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(mtime) => {
+            let age = std::time::SystemTime::now()
+                .duration_since(mtime)
+                .unwrap_or(std::time::Duration::MAX);
+            age.as_secs() < 30 * 24 * 3600 // 30 days
+        }
+        Err(_) => false,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  POST /v1/elevation/fetch-s3
+//  Multipart params:
+//    center_lng: f64  (WGS84 longitude of AOI center)
+//    center_lat: f64  (WGS84 latitude of AOI center)
+//    min_lng, min_lat, max_lng, max_lat: f64  (WGS84 bbox for clip)
+// ═══════════════════════════════════════════════════════════════════════════
+pub async fn fetch_elevation_s3(
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Extension(_state): Extension<AppState>,
+    _headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<GeoJsonOutput>, AppError> {
+    let mut center_lng: Option<f64> = None;
+    let mut center_lat: Option<f64> = None;
+    let mut min_lng: Option<f64> = None;
+    let mut min_lat: Option<f64> = None;
+    let mut max_lng: Option<f64> = None;
+    let mut max_lat: Option<f64> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?    
+    {
+        let name = field.name().unwrap_or("").to_string();
+        let text = field.text().await.map_err(|e| AppError::BadRequest(format!("Field read: {e}")))?;
+        let parse = |s: &str| s.trim().parse::<f64>().map_err(|e| AppError::BadRequest(format!("Parse {name}: {e}")));
+        match name.as_str() {
+            "center_lng" => center_lng = Some(parse(&text)?),
+            "center_lat" => center_lat = Some(parse(&text)?),
+            "min_lng"    => min_lng    = Some(parse(&text)?),
+            "min_lat"    => min_lat    = Some(parse(&text)?),
+            "max_lng"    => max_lng    = Some(parse(&text)?),
+            "max_lat"    => max_lat    = Some(parse(&text)?),
+            _ => {}
+        }
+    }
+
+    let clng = center_lng.ok_or_else(|| AppError::BadRequest("Missing center_lng".into()))?;
+    let clat = center_lat.ok_or_else(|| AppError::BadRequest("Missing center_lat".into()))?;
+    let mnlng = min_lng.ok_or_else(|| AppError::BadRequest("Missing min_lng".into()))?;
+    let mnlat = min_lat.ok_or_else(|| AppError::BadRequest("Missing min_lat".into()))?;
+    let mxlng = max_lng.ok_or_else(|| AppError::BadRequest("Missing max_lng".into()))?;
+    let mxlat = max_lat.ok_or_else(|| AppError::BadRequest("Missing max_lat".into()))?;
+
+    let (project, s3_url) = lookup_ak_ifsar_tile(clng, clat)
+        .ok_or_else(|| AppError::BadRequest(
+            format!("No Alaska IfSAR tile found for ({clng:.4}, {clat:.4}). Only Alaska AOIs are currently supported.")
+        ))?;
+
+    // Check 30-day cache
+    let cache_path = tile_cache_path(project);
+    if !tile_cache_valid(&cache_path) {
+        tracing::info!("Downloading S3 tile {} ({} MB expected)…", project, 711);
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(600)) // 10 min timeout for large tile
+            .build()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("reqwest build: {e}")))?;
+        let resp = client.get(s3_url).send().await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 download failed: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(AppError::Internal(anyhow::anyhow!("S3 HTTP {}: {}", resp.status(), s3_url)));
+        }
+        let tile_bytes = resp.bytes().await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 read body: {e}")))?;
+        std::fs::write(&cache_path, &tile_bytes)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Cache write: {e}")))?;
+        tracing::info!("Tile cached at {:?} ({} MB)", cache_path, tile_bytes.len() / 1_000_000);
+    } else {
+        tracing::info!("Tile cache hit: {:?}", cache_path);
+    }
+
+    // Clip to AOI bbox using gdalwarp (tile is EPSG:3338, bbox is WGS84 → reproject bbox to EPSG:3338)
+    let out_bytes = tokio::task::spawn_blocking(move || {
+        run_clip_s3_tile_sync(&cache_path, mnlng, mnlat, mxlng, mxlat)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
+    .map_err(|e| e)?;
+
+    Ok(Json(GeoJsonOutput {
+        request_id,
+        price_usd: 0.0,
+        result: crate::gis::raster::RasterCommandOutput {
+            stats: crate::gis::raster::RasterOpStats {
+                tool: "elevation-fetch-s3".to_string(),
+                input_count: 1,
+                input_size_bytes: 0,
+                output_size_bytes: out_bytes.len(),
+            },
+            bytes: out_bytes,
+            filename: "dem_s3_clipped.tif".into(),
+            mime_type: "image/tiff".to_string(),
+        }.as_json_value(),
+    }))
+}
+
+fn run_clip_s3_tile_sync(
+    tile_path: &PathBuf,
+    min_lng: f64, min_lat: f64,
+    max_lng: f64, max_lat: f64,
+) -> Result<Vec<u8>, AppError> {
+    use tempfile::TempDir;
+    use std::process::Command;
+
+    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+    let out_path = tmp.path().join("clipped.tif");
+
+    // gdalwarp -te takes bbox in target CRS (EPSG:3338).
+    // We use -te_srs EPSG:4326 so we can pass WGS84 bbox directly — gdalwarp handles the conversion.
+    let status = Command::new("gdalwarp")
+        .args([
+            "-te",
+            &min_lng.to_string(), &min_lat.to_string(),
+            &max_lng.to_string(), &max_lat.to_string(),
+            "-te_srs", "EPSG:4326",
+            "-of", "GTiff",
+            "-co", "COMPRESS=LZW",
+            tile_path.to_str().unwrap(),
+            out_path.to_str().unwrap(),
+        ])
+        .status()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("gdalwarp exec: {e}")))?;
+
+    if !status.success() {
+        return Err(AppError::Internal(anyhow::anyhow!("gdalwarp clip failed: {}", status)));
+    }
+    if !out_path.exists() {
+        return Err(AppError::Internal(anyhow::anyhow!("gdalwarp clip: output not created")));
+    }
+
+    let bytes = std::fs::read(&out_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read clipped: {e}")))?;
+    Ok(bytes)
 }
