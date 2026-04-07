@@ -74,6 +74,9 @@ use gis::{
         routes::pdf::pdf_rasterize,
         routes::georef::raster_georeference,
         routes::export_jgw::export_jgw,
+        routes::export_dxf::export_dxf,
+        routes::export_kml::export_kml,
+        routes::export_shapefile::export_shapefile,
     ),
     components(
         schemas(
@@ -100,6 +103,9 @@ use gis::{
             ReclassifyParams,
             PackageGdbParams,
             PdfRasterizeResponse,
+            routes::export_dxf::ExportDxfResponse,
+            routes::export_kml::ExportKmlResponse,
+            routes::export_shapefile::ExportShapefileResponse,
         )
     ),
     tags(
