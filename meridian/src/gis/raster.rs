@@ -1141,13 +1141,20 @@ fn run_raster_to_vector_sync(
 
     // Call GDALPolygonize (unsafe)
     // Arguments: band, mask_band, layer, field_index, options, progress_callback, progress_data
+    //
+    // NOTE: We pass 8CONNECTED=1 to match ArcGIS Raster To Polygon behavior.
+    // Without this, GDAL defaults to 4-connectedness, producing jagged orthogonal
+    // artifacts (vertical/horizontal stair-stepping) along polygon boundaries.
+    let opt_8conn = std::ffi::CString::new("8CONNECTED=1").unwrap();
+    let opt_null: *mut c_char = std::ptr::null_mut();
+    let polygonize_options: [*mut c_char; 2] = [opt_8conn.as_ptr() as *mut c_char, opt_null];
     let result = unsafe {
         gdal_sys::GDALPolygonize(
             c_band,
             std::ptr::null_mut(), // no mask band
             c_layer,
             0, // field index (first field we created)
-            std::ptr::null_mut(), // options
+            polygonize_options.as_ptr() as *mut *mut c_char, // options — 8-connected
             None, // progress callback
             std::ptr::null_mut(), // progress data
         )
