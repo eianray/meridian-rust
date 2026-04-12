@@ -1080,21 +1080,18 @@ async fn run_fetch_dggs_sync(geojson_str: &str) -> Result<Vec<u8>, AppError> {
 
 
     // ── 2. Download tiles from DGGS portal ──────────────────────────────────
-    let bbox_geojson = extract_bbox_polygon(geojson_str)?;
-    let encoded_bbox = percent_encode(bbox_geojson.as_bytes());
-    tracing::info!("DGGS: using bbox for download URL: {}", bbox_geojson);
-    let download_url = format!(
-        "{dggs_base}/download?geojson={}&ids={}",
-        encoded_bbox, dataset_id
-    );
-
-    tracing::info!("DGGS: downloading tiles from {download_url}");
+    // Use POST with full polygon in body to avoid HTTP 414 (URL too long).
+    // The server uses geojson= to clip/select tiles, so we must send the real polygon.
+    let download_body = format!("geojson={}&ids={}", encoded_geojson, dataset_id);
+    tracing::info!("DGGS: POSTing download request for dataset_id={}", dataset_id);
 
     let dl_resp = dl_client
-        .get(&download_url)
+        .post(format!("{dggs_base}/download"))
+        .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Origin", dggs_base)
         .header("Referer", format!("{dggs_base}/"))
         .header("User-Agent", "Mozilla/5.0 (compatible; Meridian/1.0)")
+        .body(download_body)
         .send()
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("DGGS download failed: {e}")))?;
