@@ -1208,28 +1208,26 @@ async fn run_fetch_dggs_sync(geojson_str: &str) -> Result<Vec<u8>, AppError> {
         tracing::info!("DGGS: merged {} tiles", tif_paths.len());
     }
 
-    // ── 5. Clip merged raster to AOI polygon using gdalwarp -cutline ─────────
-    let aoi_path = tmp.path().join("aoi.geojson");
-    let aoi_for_clip = {
-        let v: serde_json::Value = serde_json::from_str(geojson_str)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Parse AOI for clip: {e}")))?;
-        match v.get("type").and_then(|t| t.as_str()) {
-            Some("Feature") | Some("FeatureCollection") => geojson_str.to_string(),
-            _ => serde_json::json!({
-                "type": "Feature",
-                "properties": {},
-                "geometry": v
-            }).to_string(),
-        }
-    };
-    std::fs::write(&aoi_path, &aoi_for_clip)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write AOI geojson: {e}")))?;
+    // ── 5. Clip merged raster to AOI bbox using gdalwarp -te + -te_srs ─────────
+    // Use bbox clip with -te_srs EPSG:4326 (same approach as run_clip_s3_tile_sync).
+    // The cutline approach requires GDAL to reproject a polygon cutline CRS which
+    // is unreliable here; -te_srs handles the WGS84→EPSG:3338 conversion correctly.
+    let bbox_str = extract_bbox_polygon(geojson_str)?;
+    let bbox_v: serde_json::Value = serde_json::from_str(&bbox_str)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Parse clip bbox: {e}")))?;
+    let coords = bbox_v["coordinates"][0].as_array()
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Clip bbox coords missing")))?;
+    let min_lon = coords[0][0].as_f64().unwrap_or(0.0);
+    let min_lat = coords[0][1].as_f64().unwrap_or(0.0);
+    let max_lon = coords[2][0].as_f64().unwrap_or(0.0);
+    let max_lat = coords[2][1].as_f64().unwrap_or(0.0);
 
     let clipped_path = tmp.path().join("clipped.tif");
     let status = Command::new("gdalwarp")
         .args([
-            "-cutline", aoi_path.to_str().unwrap(),
-            "-crop_to_cutline",
+            "-te", &min_lon.to_string(), &min_lat.to_string(),
+                    &max_lon.to_string(), &max_lat.to_string(),
+            "-te_srs", "EPSG:4326",
             "-dstnodata", "-9999",
             "-of", "GTiff",
             "-co", "COMPRESS=LZW",
