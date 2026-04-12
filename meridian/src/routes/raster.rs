@@ -1086,6 +1086,7 @@ async fn run_fetch_dggs_sync(geojson_str: &str) -> Result<Vec<u8>, AppError> {
     let bbox_geojson = extract_bbox_polygon(geojson_str)?;
     let encoded_bbox = percent_encode(bbox_geojson.as_bytes());
     let download_body = format!("geojson={}&ids={}", encoded_bbox, dataset_id);
+    tracing::info!("DGGS: bbox_geojson = {}", bbox_geojson);
     tracing::info!("DGGS: POSTing download with bbox for dataset_id={}", dataset_id);
 
     let dl_resp = dl_client

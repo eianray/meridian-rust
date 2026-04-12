@@ -75,7 +75,8 @@ image = "0.25"
 kamadak-exif = "0.6"
 
 # HTTP client (Solana RPC calls)
-reqwest = { version = "0.11", features = ["json"] }
+futures-util = { version = "0.3", features = ["default"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
 
 # Database (payment idempotency + ops log)
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }

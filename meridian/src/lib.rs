@@ -8,6 +8,7 @@ pub mod gis;
 pub mod metrics;
 pub mod middleware;
 pub mod routes;
+pub mod jobs;
 
 use std::sync::Arc;
 
@@ -16,4 +17,6 @@ use std::sync::Arc;
 pub struct AppState {
     pub config: Arc<config::AppConfig>,
     pub db: Option<sqlx::PgPool>,
+    pub job_store: crate::jobs::JobStore,
+    pub dggs_semaphore: Arc<tokio::sync::Semaphore>,
 }
