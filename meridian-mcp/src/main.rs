@@ -15,8 +15,12 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use tools::{
-    AddFieldParams, BufferParams, ClipParams, ConvertParams, DissolveParams, GeoJsonParams,
-    RasterParams, ReprojectParams, SpatialJoinParams, TwoLayerParams,
+    AddFieldParams, BatchParams, BufferParams, CalculateGeometryParams, ClipParams,
+    ColorReliefParams, ContoursParams, ConvertParams, DissolveParams, ElevationFetchParams,
+    ExportGisParams, ExportJgwParams, GeoJsonParams, MosaicParams, PackageGdbParams,
+    PdfRasterizeParams, RasterCalcParams, RasterConvertParams, RasterGeoreferenceParams,
+    RasterParams, RasterToVectorParams, RasterWarpParams, ReclassifyParams, ReprojectParams,
+    SpatialJoinParams, TwoLayerParams, VectorizeParams,
 };
 
 /// Empty parameters for the health check tool
@@ -263,6 +267,158 @@ impl MeridianServer {
         Parameters(p): Parameters<RasterParams>,
     ) -> Result<String, ErrorData> {
         tools::roughness(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Apply color ramp to a base64-encoded GeoTIFF DEM to produce a colored relief image")]
+    async fn meridian_color_relief(
+        &self,
+        Parameters(p): Parameters<ColorReliefParams>,
+    ) -> Result<String, ErrorData> {
+        tools::color_relief(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Generate contour lines as GeoJSON from a base64-encoded GeoTIFF DEM")]
+    async fn meridian_contours(
+        &self,
+        Parameters(p): Parameters<ContoursParams>,
+    ) -> Result<String, ErrorData> {
+        tools::contours(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Evaluate a raster math expression on one or two base64-encoded GeoTIFF inputs (e.g. slope classification, unit conversion)")]
+    async fn meridian_raster_calc(
+        &self,
+        Parameters(p): Parameters<RasterCalcParams>,
+    ) -> Result<String, ErrorData> {
+        tools::raster_calc(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Convert a base64-encoded GeoTIFF to another raster format (tif, png, jpg)")]
+    async fn meridian_raster_convert(
+        &self,
+        Parameters(p): Parameters<RasterConvertParams>,
+    ) -> Result<String, ErrorData> {
+        tools::raster_convert(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Reproject a base64-encoded GeoTIFF to a target CRS using gdalwarp")]
+    async fn meridian_raster_warp(
+        &self,
+        Parameters(p): Parameters<RasterWarpParams>,
+    ) -> Result<String, ErrorData> {
+        tools::raster_warp(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Polygonize a base64-encoded GeoTIFF raster to a GeoJSON vector layer")]
+    async fn meridian_raster_to_vector(
+        &self,
+        Parameters(p): Parameters<RasterToVectorParams>,
+    ) -> Result<String, ErrorData> {
+        tools::raster_to_vector(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Convert a GeoJSON layer to MBTiles vector tiles (Mapbox Vector Tiles)")]
+    async fn meridian_vectorize(
+        &self,
+        Parameters(p): Parameters<VectorizeParams>,
+    ) -> Result<String, ErrorData> {
+        tools::vectorize(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Reclassify a polygonized raster GeoJSON layer by gridcode into elevation or slope groups (workflow 1=elevation, 2=slope)")]
+    async fn meridian_reclassify(
+        &self,
+        Parameters(p): Parameters<ReclassifyParams>,
+    ) -> Result<String, ErrorData> {
+        tools::reclassify(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Calculate geometry properties (area, perimeter, length, x, y) and store as a new attribute field")]
+    async fn meridian_calculate_geometry(
+        &self,
+        Parameters(p): Parameters<CalculateGeometryParams>,
+    ) -> Result<String, ErrorData> {
+        tools::calculate_geometry(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Fetch a clipped IfSAR DTM GeoTIFF for a WGS84 AOI polygon from the Alaska DGGS elevation portal (Alaska only, EPSG:3338 output)")]
+    async fn meridian_elevation_fetch(
+        &self,
+        Parameters(p): Parameters<ElevationFetchParams>,
+    ) -> Result<String, ErrorData> {
+        tools::elevation_fetch(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Run multiple GIS operations in one request. Pass a JSON array of operations and up to two base64-encoded input files.")]
+    async fn meridian_batch(
+        &self,
+        Parameters(p): Parameters<BatchParams>,
+    ) -> Result<String, ErrorData> {
+        tools::batch(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Merge 2–4 base64-encoded GeoTIFF rasters into a single mosaic, optionally reprojecting and resampling")]
+    async fn meridian_mosaic(
+        &self,
+        Parameters(p): Parameters<MosaicParams>,
+    ) -> Result<String, ErrorData> {
+        tools::mosaic(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Package 1–3 GeoJSON layers into a File Geodatabase (GDB) zip archive")]
+    async fn meridian_package_gdb(
+        &self,
+        Parameters(p): Parameters<PackageGdbParams>,
+    ) -> Result<String, ErrorData> {
+        tools::package_gdb(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Rasterize a base64-encoded PDF to PNG images (one per page), optionally at a custom DPI")]
+    async fn meridian_pdf_rasterize(
+        &self,
+        Parameters(p): Parameters<PdfRasterizeParams>,
+    ) -> Result<String, ErrorData> {
+        tools::pdf_rasterize(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Georeference a base64-encoded raster image using ground control points (GCPs), returning a Cloud Optimized GeoTIFF")]
+    async fn meridian_raster_georeference(
+        &self,
+        Parameters(p): Parameters<RasterGeoreferenceParams>,
+    ) -> Result<String, ErrorData> {
+        tools::raster_georeference(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Export a base64-encoded georeferenced raster as a JPEG + ESRI world file (.jgw) using ground control points")]
+    async fn meridian_export_jgw(
+        &self,
+        Parameters(p): Parameters<ExportJgwParams>,
+    ) -> Result<String, ErrorData> {
+        tools::export_jgw(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Export a GeoJSON layer as DXF (AutoCAD) format, optionally reprojecting from a source CRS")]
+    async fn meridian_export_dxf(
+        &self,
+        Parameters(p): Parameters<ExportGisParams>,
+    ) -> Result<String, ErrorData> {
+        tools::export_dxf(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Export a GeoJSON layer as KML (Google Earth) format, optionally reprojecting from a source CRS")]
+    async fn meridian_export_kml(
+        &self,
+        Parameters(p): Parameters<ExportGisParams>,
+    ) -> Result<String, ErrorData> {
+        tools::export_kml(&self.config, &self.client, p).await
+    }
+
+    #[tool(description = "Export a GeoJSON layer as a zipped Shapefile, optionally reprojecting from a source CRS")]
+    async fn meridian_export_shapefile(
+        &self,
+        Parameters(p): Parameters<ExportGisParams>,
+    ) -> Result<String, ErrorData> {
+        tools::export_shapefile(&self.config, &self.client, p).await
     }
 }
 

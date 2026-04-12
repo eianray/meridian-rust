@@ -1,4 +1,4 @@
-use axum::{routing::post, Router};
+use axum::{routing::{get, post}, Router};
 
 use crate::gis::{buffer::buffer, clip::clip, dissolve::dissolve, reproject::reproject};
 use crate::routes::{
@@ -12,7 +12,7 @@ use crate::routes::{
     georef::raster_georeference,
     package::package_gdb,
     pdf::pdf_rasterize,
-    raster::{aspect, color_relief, contours, fetch_elevation_s3, hillshade, mosaic, raster_calc, raster_convert, raster_to_vector, raster_warp, roughness, slope},
+    raster::{aspect, color_relief, contours, fetch_elevation_dggs, hillshade, job_result, job_status, mosaic, raster_calc, raster_convert, raster_to_vector, raster_warp, roughness, slope},
     reclassify::reclassify,
     schema::{repair, schema, validate},
     topology::{difference, intersect, union},
@@ -84,5 +84,8 @@ pub fn router() -> Router {
         .route("/v1/export/kml", post(export_kml))
         .route("/v1/export/shapefile", post(export_shapefile))
         // Alaska raw IfSAR S3 elevation fetch
-        .route("/v1/elevation/fetch-s3", post(fetch_elevation_s3))
+        .route("/v1/elevation/fetch-dggs", post(fetch_elevation_dggs))
+        // Job status polling
+        .route("/v1/jobs/:id/status", get(job_status))
+        .route("/v1/jobs/:id/result", get(job_result))
 }

@@ -2401,6 +2401,7 @@ dependencies = [
  "constant_time_eq 0.3.1",
  "criterion",
  "dotenvy",
+ "futures-util",
  "gdal",
  "gdal-sys",
  "geo",
@@ -3480,10 +3481,12 @@ dependencies = [
  "system-configuration 0.5.1",
  "tokio",
  "tokio-native-tls",
+ "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "winreg",
 ]
@@ -3562,8 +3565,6 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba6b9d2f0efe2258b23767f1f9e0054cfbcac9c2d6f81a031214143096d7864f"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5214,6 +5215,19 @@ dependencies = [
  "indexmap 2.13.0",
  "wasm-encoder",
  "wasmparser",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

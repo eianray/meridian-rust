@@ -4,6 +4,7 @@ use meridian::gis;
 use meridian::metrics;
 use meridian::middleware;
 use meridian::routes;
+use meridian::jobs;
 use meridian::AppState;
 
 use axum::{
@@ -230,9 +231,24 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let job_store = meridian::jobs::JobStore::new();
+    let dggs_semaphore = Arc::new(tokio::sync::Semaphore::new(3)); // max 3 concurrent DGGS downloads
+
+    // Spawn cleanup task
+    let store_clone = job_store.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            store_clone.cleanup();
+        }
+    });
+
     let state = AppState {
         config: Arc::new(cfg.clone()),
         db,
+        job_store,
+        dggs_semaphore,
     };
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
@@ -287,6 +303,8 @@ mod tests {
                 mcp_api_key: None,
             }),
             db: None,
+            job_store: meridian::jobs::JobStore::new(),
+            dggs_semaphore: Arc::new(tokio::sync::Semaphore::new(3)),
         }
     }
 

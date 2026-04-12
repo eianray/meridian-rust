@@ -4,3 +4,6 @@ members = [
     "meridian-mcp",
 ]
 resolver = "2"
+
+[patch.crates-io]
+rmcp = { path = "vendor-rmcp" }
