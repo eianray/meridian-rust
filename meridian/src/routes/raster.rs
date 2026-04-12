@@ -1080,10 +1080,13 @@ async fn run_fetch_dggs_sync(geojson_str: &str) -> Result<Vec<u8>, AppError> {
 
 
     // ── 2. Download tiles from DGGS portal ──────────────────────────────────
-    // Use POST with full polygon in body to avoid HTTP 414 (URL too long).
-    // The server uses geojson= to clip/select tiles, so we must send the real polygon.
-    let download_body = format!("geojson={}&ids={}", encoded_geojson, dataset_id);
-    tracing::info!("DGGS: POSTing download request for dataset_id={}", dataset_id);
+    // POST with bbox (4-point envelope) to avoid HTTP 414 on complex polygons.
+    // The download endpoint only needs a simple envelope to select the right tile(s).
+    // (Full polygon in query.json above is correct — only the download needs bbox.)
+    let bbox_geojson = extract_bbox_polygon(geojson_str)?;
+    let encoded_bbox = percent_encode(bbox_geojson.as_bytes());
+    let download_body = format!("geojson={}&ids={}", encoded_bbox, dataset_id);
+    tracing::info!("DGGS: POSTing download with bbox for dataset_id={}", dataset_id);
 
     let dl_resp = dl_client
         .post(format!("{dggs_base}/download"))
