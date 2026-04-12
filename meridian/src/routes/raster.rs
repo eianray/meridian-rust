@@ -1,4 +1,4 @@
-use axum::{extract::Extension, http::HeaderMap, Json};
+use axum::{extract::Extension, http::HeaderMap, response::IntoResponse, Json};
 use std::collections::BTreeMap;
 use std::time::Instant;
 use utoipa::ToSchema;
@@ -866,87 +866,19 @@ fn run_raster_warp_sync(input_bytes: &[u8], target_crs: &str) -> Result<crate::g
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Alaska DGGS / USGS S3 tile lookup
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Returns (project_name, s3_url) for the Alaska IfSAR tile covering the given WGS84 point.
-/// Hardcoded grid for Alaska Mid Accuracy DEM 6 (5m IfSAR, EPSG:3338).
-fn lookup_ak_ifsar_tile(lng: f64, lat: f64) -> Option<(&'static str, &'static str)> {
-    // Each entry: (west, east, south, north, project, s3_url)
-    const TILES: &[(
-        f64, f64, f64, f64, &str, &str,
-    )] = &[
-        (
-            -153.04, -151.91, 65.98, 67.01,
-            "AK_IFSAR-D6-L3-C114_2013",
-            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C114_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
-        ),
-        (
-            -155.50, -153.04, 65.98, 67.01,
-            "AK_IFSAR-D6-L3-C109_2013",
-            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C109_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
-        ),
-        (
-            -151.91, -150.77, 65.98, 67.01,
-            "AK_IFSAR-D6-L3-C137_2013",
-            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C137_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
-        ),
-        (
-            -150.77, -149.63, 65.98, 67.01,
-            "AK_IFSAR-D6-L3-C163_2013",
-            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/Alaska_Mid_Accuracy_DEM_6/AK_IFSAR-D6-L3-C163_2013/TIFF/USGS_AK5M_Alaska_Mid_Accuracy_DEM_6_Full.tif",
-        ),
-    ];
-
-    for &(w, e, s, n, project, url) in TILES {
-        if lng >= w && lng <= e && lat >= s && lat <= n {
-            return Some((project, url));
-        }
-    }
-    None
-}
-
-/// Returns the local cache path for a given tile project name.
-/// Cache lives in /tmp/meridian_tile_cache/<project>.tif
-/// 30-day TTL enforced by checking file mtime.
-fn tile_cache_path(project: &str) -> PathBuf {
-    let dir = PathBuf::from("/tmp/meridian_tile_cache");
-    std::fs::create_dir_all(&dir).ok();
-    dir.join(format!("{}.tif", project))
-}
-
-fn tile_cache_valid(path: &PathBuf) -> bool {
-    if !path.exists() { return false; }
-    match std::fs::metadata(path).and_then(|m| m.modified()) {
-        Ok(mtime) => {
-            let age = std::time::SystemTime::now()
-                .duration_since(mtime)
-                .unwrap_or(std::time::Duration::MAX);
-            age.as_secs() < 30 * 24 * 3600 // 30 days
-        }
-        Err(_) => false,
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  POST /v1/elevation/fetch-s3
+//  POST /v1/elevation/fetch-dggs
+//  Fetches raw IfSAR DTM from Alaska DGGS elevation portal (elevation.alaska.gov)
 //  Multipart params:
-//    center_lng: f64  (WGS84 longitude of AOI center)
-//    center_lat: f64  (WGS84 latitude of AOI center)
-//    min_lng, min_lat, max_lng, max_lat: f64  (WGS84 bbox for clip)
+//    geojson: string  (GeoJSON Polygon in WGS84 — the AOI)
 // ═══════════════════════════════════════════════════════════════════════════
-pub async fn fetch_elevation_s3(
-    Extension(RequestId(request_id)): Extension<RequestId>,
-    Extension(_state): Extension<AppState>,
+
+pub async fn fetch_elevation_dggs(
+    Extension(RequestId(_request_id)): Extension<RequestId>,
+    Extension(state): Extension<AppState>,
     _headers: HeaderMap,
     mut multipart: axum::extract::Multipart,
-) -> Result<Json<GeoJsonOutput>, AppError> {
-    let mut center_lng: Option<f64> = None;
-    let mut center_lat: Option<f64> = None;
-    let mut min_lng: Option<f64> = None;
-    let mut min_lat: Option<f64> = None;
-    let mut max_lng: Option<f64> = None;
-    let mut max_lat: Option<f64> = None;
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let mut geojson_str: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -954,101 +886,355 @@ pub async fn fetch_elevation_s3(
         .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?    
     {
         let name = field.name().unwrap_or("").to_string();
-        let text = field.text().await.map_err(|e| AppError::BadRequest(format!("Field read: {e}")))?;
-        let parse = |s: &str| s.trim().parse::<f64>().map_err(|e| AppError::BadRequest(format!("Parse {name}: {e}")));
+        let text = field.text().await.map_err(|e| AppError::BadRequest(format!("Field read: {e}")))?
+;
         match name.as_str() {
-            "center_lng" => center_lng = Some(parse(&text)?),
-            "center_lat" => center_lat = Some(parse(&text)?),
-            "min_lng"    => min_lng    = Some(parse(&text)?),
-            "min_lat"    => min_lat    = Some(parse(&text)?),
-            "max_lng"    => max_lng    = Some(parse(&text)?),
-            "max_lat"    => max_lat    = Some(parse(&text)?),
+            "geojson" => geojson_str = Some(text),
             _ => {}
         }
     }
 
-    let clng = center_lng.ok_or_else(|| AppError::BadRequest("Missing center_lng".into()))?;
-    let clat = center_lat.ok_or_else(|| AppError::BadRequest("Missing center_lat".into()))?;
-    let mnlng = min_lng.ok_or_else(|| AppError::BadRequest("Missing min_lng".into()))?;
-    let mnlat = min_lat.ok_or_else(|| AppError::BadRequest("Missing min_lat".into()))?;
-    let mxlng = max_lng.ok_or_else(|| AppError::BadRequest("Missing max_lng".into()))?;
-    let mxlat = max_lat.ok_or_else(|| AppError::BadRequest("Missing max_lat".into()))?;
+    let geojson_str = geojson_str
+        .ok_or_else(|| AppError::BadRequest("Missing geojson field".into()))?;
 
-    let (project, s3_url) = lookup_ak_ifsar_tile(clng, clat)
-        .ok_or_else(|| AppError::BadRequest(
-            format!("No Alaska IfSAR tile found for ({clng:.4}, {clat:.4}). Only Alaska AOIs are currently supported.")
-        ))?;
+    // Validate it parses as JSON
+    let _geojson_val: serde_json::Value = serde_json::from_str(&geojson_str)
+        .map_err(|e| AppError::BadRequest(format!("Invalid GeoJSON: {e}")))?;
 
-    // Check 30-day cache
-    let cache_path = tile_cache_path(project);
-    if !tile_cache_valid(&cache_path) {
-        tracing::info!("Downloading S3 tile {} ({} MB expected)…", project, 711);
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(600)) // 10 min timeout for large tile
-            .build()
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("reqwest build: {e}")))?;
-        let resp = client.get(s3_url).send().await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 download failed: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(AppError::Internal(anyhow::anyhow!("S3 HTTP {}: {}", resp.status(), s3_url)));
+    // Create async job
+    let job_id = state.job_store.create();
+    let job_id_clone = job_id.clone();
+    let semaphore = state.dggs_semaphore.clone();
+    let job_store = state.job_store.clone();
+
+    // Spawn background task
+    tokio::spawn(async move {
+        let _permit = semaphore.acquire_owned().await.unwrap();
+        job_store.set_running(&job_id_clone);
+        match run_fetch_dggs_sync(&geojson_str).await {
+            Ok(bytes) => job_store.complete(&job_id_clone, bytes),
+            Err(e) => job_store.fail(&job_id_clone, e.to_string()),
         }
-        let tile_bytes = resp.bytes().await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 read body: {e}")))?;
-        std::fs::write(&cache_path, &tile_bytes)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Cache write: {e}")))?;
-        tracing::info!("Tile cached at {:?} ({} MB)", cache_path, tile_bytes.len() / 1_000_000);
-    } else {
-        tracing::info!("Tile cache hit: {:?}", cache_path);
-    }
+    });
 
-    // Clip to AOI bbox using gdalwarp (tile is EPSG:3338, bbox is WGS84 → reproject bbox to EPSG:3338)
-    let out_bytes = tokio::task::spawn_blocking(move || {
-        run_clip_s3_tile_sync(&cache_path, mnlng, mnlat, mxlng, mxlat)
-    })
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("Thread panic: {e}")))?
-    .map_err(|e| e)?;
-
-    Ok(Json(GeoJsonOutput {
-        request_id,
-        price_usd: 0.0,
-        result: crate::gis::raster::RasterCommandOutput {
-            stats: crate::gis::raster::RasterOpStats {
-                tool: "elevation-fetch-s3".to_string(),
-                input_count: 1,
-                input_size_bytes: 0,
-                output_size_bytes: out_bytes.len(),
-            },
-            bytes: out_bytes,
-            filename: "dem_s3_clipped.tif".into(),
-            mime_type: "image/tiff".to_string(),
-        }.as_json_value(),
-    }))
+    Ok((axum::http::StatusCode::ACCEPTED, axum::Json(serde_json::json!({"job_id": job_id}))))
 }
 
-fn run_clip_s3_tile_sync(
-    tile_path: &PathBuf,
-    min_lng: f64, min_lat: f64,
-    max_lng: f64, max_lat: f64,
-) -> Result<Vec<u8>, AppError> {
-    use tempfile::TempDir;
+// ── GET /v1/jobs/:id/status ───────────────────────────────────────────────────
+
+/// Returns the current status of a job (pending / running / complete / failed / not_found).
+/// Always returns HTTP 200.
+pub async fn job_status(
+    Extension(state): Extension<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::Json<serde_json::Value> {
+    let (status, error) = state.job_store.get_status(&id);
+    match error {
+        Some(e) => axum::Json(serde_json::json!({"status": status, "error": e})),
+        None => axum::Json(serde_json::json!({"status": status})),
+    }
+}
+
+// ── GET /v1/jobs/:id/result ───────────────────────────────────────────────────
+
+/// Returns the GeoTIFF result if the job is complete.
+/// Consumes the result (one-shot retrieval).
+pub async fn job_result(
+    Extension(state): Extension<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl axum::response::IntoResponse {
+    let (status, _) = state.job_store.get_status(&id);
+    match status.as_str() {
+        "complete" => {
+            match state.job_store.take_result(&id) {
+                Some(bytes) => (
+                    axum::http::StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "image/tiff")],
+                    bytes,
+                ).into_response(),
+                None => (
+                    axum::http::StatusCode::NOT_FOUND,
+                    axum::Json(serde_json::json!({"error": "job not found or already retrieved"}))
+                ).into_response(),
+            }
+        }
+        "pending" | "running" => (
+            axum::http::StatusCode::from_u16(425).unwrap(),
+            axum::Json(serde_json::json!({"error": "not ready"}))
+        ).into_response(),
+        _ => (
+            axum::http::StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({"error": "job not found or already retrieved"}))
+        ).into_response(),
+    }
+}
+
+async fn run_fetch_dggs_sync(geojson_str: &str) -> Result<Vec<u8>, AppError> {
     use std::process::Command;
+    use tempfile::TempDir;
+    use futures_util::StreamExt;
 
-    let tmp = TempDir::new().map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
-    let out_path = tmp.path().join("clipped.tif");
+    let dggs_base = "https://elevation.alaska.gov";
 
-    // gdalwarp -te takes bbox in target CRS (EPSG:3338).
-    // We use -te_srs EPSG:4326 so we can pass WGS84 bbox directly — gdalwarp handles the conversion.
+    // ── 1. Query DGGS portal for intersecting datasets ──────────────────────
+    // Short timeout for the metadata query only
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("reqwest build: {e}")))?;
+    // No timeout for the download client — tiles can be 50–200 MB
+    let dl_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("reqwest dl_client build: {e}")))?;
+
+    let encoded_geojson = percent_encode(geojson_str.as_bytes());
+    let body = format!("geojson={}", encoded_geojson);
+
+    let query_resp = client
+        .post(format!("{dggs_base}/query.json"))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Origin", dggs_base)
+        .header("Referer", format!("{dggs_base}/"))
+        .header("User-Agent", "Mozilla/5.0 (compatible; Meridian/1.0)")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DGGS query failed: {e}")))?;
+
+    if !query_resp.status().is_success() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "DGGS query.json HTTP {}", query_resp.status()
+        )));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct DggsDataset {
+        dataset_id: u64,
+        dataset_name: String,
+        project_name: String,
+        files: u64,
+    }
+
+    let datasets: Vec<DggsDataset> = query_resp.json().await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DGGS query parse: {e}")))?;
+
+    // Find IfSAR DTM dataset (project_name="IFSAR", dataset_name contains "DTM")
+    let dtm = datasets.iter()
+        .find(|d| d.project_name == "IFSAR" && d.dataset_name.to_uppercase().contains("DTM"))
+        .ok_or_else(|| AppError::BadRequest(
+            "No IfSAR DTM coverage available for this area. Only areas covered by the Alaska DGGS IfSAR survey are supported.".into()
+        ))?;
+
+    let dataset_id = dtm.dataset_id;
+    let files_count = dtm.files;
+    tracing::info!("DGGS: found IfSAR DTM dataset_id={dataset_id}, {files_count} tile(s)");
+
+    /// Extract a bounding-box polygon from any valid GeoJSON geometry.
+    /// Walks coordinate arrays to find min/max lon/lat across all rings,
+    /// regardless of nesting depth (Polygon, MultiPolygon, Feature, FeatureCollection).
+    fn extract_bbox_polygon(geojson_str: &str) -> Result<String, AppError> {
+        use serde_json::Value;
+
+        let v: Value = serde_json::from_str(geojson_str)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("bbox parse: {e}")))?;
+
+        let mut min_lon = f64::INFINITY;
+        let mut max_lon = f64::NEG_INFINITY;
+        let mut min_lat = f64::INFINITY;
+        let mut max_lat = f64::NEG_INFINITY;
+
+        fn walk_value(v: &Value, min_lon: &mut f64, max_lon: &mut f64, min_lat: &mut f64, max_lat: &mut f64) {
+            match v {
+                Value::Array(arr) => {
+                    if arr.len() == 2 {
+                        if let (Some(&Value::Number(ref lon)), Some(&Value::Number(ref lat))) = (arr.get(0), arr.get(1)) {
+                            if let (Some(lon_f), Some(lat_f)) = (lon.as_f64(), lat.as_f64()) {
+                                if lon_f < *min_lon { *min_lon = lon_f; }
+                                if lon_f > *max_lon { *max_lon = lon_f; }
+                                if lat_f < *min_lat { *min_lat = lat_f; }
+                                if lat_f > *max_lat { *max_lat = lat_f; }
+                                return;
+                            }
+                        }
+                    }
+                    for item in arr { walk_value(item, min_lon, max_lon, min_lat, max_lat); }
+                }
+                Value::Object(obj) => { for val in obj.values() { walk_value(val, min_lon, max_lon, min_lat, max_lat); } }
+                _ => {}
+            }
+        }
+
+        walk_value(&v, &mut min_lon, &mut max_lon, &mut min_lat, &mut max_lat);
+
+        if min_lon == f64::INFINITY {
+            return Err(AppError::Internal(anyhow::anyhow!("No coordinates found in GeoJSON")));
+        }
+
+        let bbox = format!(
+            "{{\"type\":\"Polygon\",\"coordinates\":[[[{},{}],[{},{}],[{},{}],[{},{}],[{},{}]]]}}",
+            min_lon, min_lat, max_lon, min_lat, max_lon, max_lat, min_lon, max_lat, min_lon, min_lat
+        );
+        Ok(bbox)
+    }
+
+
+    // ── 2. Download tiles from DGGS portal ──────────────────────────────────
+    let bbox_geojson = extract_bbox_polygon(geojson_str)?;
+    let encoded_bbox = percent_encode(bbox_geojson.as_bytes());
+    tracing::info!("DGGS: using bbox for download URL: {}", bbox_geojson);
+    let download_url = format!(
+        "{dggs_base}/download?geojson={}&ids={}",
+        encoded_bbox, dataset_id
+    );
+
+    tracing::info!("DGGS: downloading tiles from {download_url}");
+
+    let dl_resp = dl_client
+        .get(&download_url)
+        .header("Origin", dggs_base)
+        .header("Referer", format!("{dggs_base}/"))
+        .header("User-Agent", "Mozilla/5.0 (compatible; Meridian/1.0)")
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DGGS download failed: {e}")))?;
+
+    if !dl_resp.status().is_success() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "DGGS download HTTP {}", dl_resp.status()
+        )));
+    }
+
+    // ── 3. Unpack outer zip, then inner per-tile zips ────────────────────────
+    // Stream download to disk instead of buffering in memory — tiles can be 50-200 MB
+    let tmp = TempDir::new()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+
+    let zip_path = tmp.path().join("download.zip");
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(&zip_path).await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Create zip file: {e}")))?;
+        let mut stream = dl_resp.bytes_stream();
+        let mut downloaded: u64 = 0;
+        loop {
+            match stream.next().await {
+                Some(Ok(chunk)) => {
+                    downloaded += chunk.len() as u64;
+                    file.write_all(&chunk).await
+                        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write zip chunk: {e}")))?;
+                }
+                Some(Err(e)) => {
+                    return Err(AppError::Internal(anyhow::anyhow!("DGGS download stream: {e}")));
+                }
+                None => break,
+            }
+        }
+        tracing::info!("DGGS: download complete ({} MB)", downloaded / 1_048_576);
+    }
+    let zip_bytes = std::fs::read(&zip_path)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read zip file: {e}")))?;
+
+    let mut tif_paths: Vec<std::path::PathBuf> = Vec::new();
+
+    {
+        use std::io::Cursor;
+        let cursor = Cursor::new(&zip_bytes[..]);
+        let mut outer = zip::ZipArchive::new(cursor)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Outer zip open: {e}")))?;
+
+        for i in 0..outer.len() {
+            let mut entry = outer.by_index(i)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Outer zip entry {i}: {e}")))?;
+            let name = entry.name().to_string();
+            if !name.ends_with(".zip") { continue; }
+
+            // Read inner zip bytes
+            let mut inner_bytes = Vec::new();
+            use std::io::Read;
+            entry.read_to_end(&mut inner_bytes)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Read inner zip {name}: {e}")))?;
+
+            // Unpack inner zip, extract only .tif files
+            let inner_cursor = Cursor::new(inner_bytes);
+            let mut inner = zip::ZipArchive::new(inner_cursor)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Inner zip open {name}: {e}")))?;
+
+            for j in 0..inner.len() {
+                let mut f = inner.by_index(j)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Inner zip entry {j}: {e}")))?;
+                let fname = f.name().to_string();
+                if !fname.to_lowercase().ends_with(".tif") { continue; }
+
+                let stem = std::path::Path::new(&fname)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("tile.tif")
+                    .to_string();
+                let tif_path = tmp.path().join(&stem);
+                let mut out_file = std::fs::File::create(&tif_path)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Create tif {stem}: {e}")))?;
+                std::io::copy(&mut f, &mut out_file)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Write tif {stem}: {e}")))?;
+                tif_paths.push(tif_path);
+                tracing::info!("DGGS: extracted {stem}");
+            }
+        }
+    }
+
+    if tif_paths.is_empty() {
+        return Err(AppError::Internal(anyhow::anyhow!("DGGS: no TIF files found in download")));
+    }
+
+    // ── 4. Merge multiple tiles if needed ───────────────────────────────────
+    let merged_path = tmp.path().join("merged.tif");
+    if tif_paths.len() == 1 {
+        std::fs::copy(&tif_paths[0], &merged_path)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Copy single tile: {e}")))?;
+    } else {
+        // gdal_merge.py -o merged.tif tile1.tif tile2.tif ...
+        let mut args: Vec<&str> = vec!["-o", merged_path.to_str().unwrap()];
+        let tile_strs: Vec<String> = tif_paths.iter()
+            .map(|p| p.to_str().unwrap().to_string())
+            .collect();
+        for t in &tile_strs { args.push(t.as_str()); }
+        let status = Command::new("gdal_merge.py")
+            .args(&args)
+            .status()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("gdal_merge exec: {e}")))?;
+        if !status.success() {
+            return Err(AppError::Internal(anyhow::anyhow!("gdal_merge failed: {}", status)));
+        }
+        tracing::info!("DGGS: merged {} tiles", tif_paths.len());
+    }
+
+    // ── 5. Clip merged raster to AOI polygon using gdalwarp -cutline ─────────
+    let aoi_path = tmp.path().join("aoi.geojson");
+    let aoi_for_clip = {
+        let v: serde_json::Value = serde_json::from_str(geojson_str)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Parse AOI for clip: {e}")))?;
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("Feature") | Some("FeatureCollection") => geojson_str.to_string(),
+            _ => serde_json::json!({
+                "type": "Feature",
+                "properties": {},
+                "geometry": v
+            }).to_string(),
+        }
+    };
+    std::fs::write(&aoi_path, &aoi_for_clip)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write AOI geojson: {e}")))?;
+
+    let clipped_path = tmp.path().join("clipped.tif");
     let status = Command::new("gdalwarp")
         .args([
-            "-te",
-            &min_lng.to_string(), &min_lat.to_string(),
-            &max_lng.to_string(), &max_lat.to_string(),
-            "-te_srs", "EPSG:4326",
+            "-cutline", aoi_path.to_str().unwrap(),
+            "-crop_to_cutline",
+            "-dstnodata", "-9999",
             "-of", "GTiff",
             "-co", "COMPRESS=LZW",
-            tile_path.to_str().unwrap(),
-            out_path.to_str().unwrap(),
+            merged_path.to_str().unwrap(),
+            clipped_path.to_str().unwrap(),
         ])
         .status()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("gdalwarp exec: {e}")))?;
@@ -1056,11 +1242,24 @@ fn run_clip_s3_tile_sync(
     if !status.success() {
         return Err(AppError::Internal(anyhow::anyhow!("gdalwarp clip failed: {}", status)));
     }
-    if !out_path.exists() {
-        return Err(AppError::Internal(anyhow::anyhow!("gdalwarp clip: output not created")));
-    }
 
-    let bytes = std::fs::read(&out_path)
+    let bytes = std::fs::read(&clipped_path)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Read clipped: {e}")))?;
     Ok(bytes)
 }
+
+/// URL-encode a byte slice (percent-encoding, form-safe)
+fn percent_encode(input: &[u8]) -> String {
+    let mut out = String::with_capacity(input.len() * 3);
+    for &b in input {
+        match b {
+            b'A'..=b'Z' | b'0'..=b'9' | b'a'..=b'z'
+            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+
