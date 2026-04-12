@@ -1089,52 +1089,85 @@ async fn run_fetch_dggs_sync(geojson_str: &str) -> Result<Vec<u8>, AppError> {
     tracing::info!("DGGS: bbox_geojson = {}", bbox_geojson);
     tracing::info!("DGGS: POSTing download with bbox for dataset_id={}", dataset_id);
 
-    let dl_resp = dl_client
-        .post(format!("{dggs_base}/download"))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Origin", dggs_base)
-        .header("Referer", format!("{dggs_base}/"))
-        .header("User-Agent", "Mozilla/5.0 (compatible; Meridian/1.0)")
-        .body(download_body)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("DGGS download failed: {e}")))?;
-
-    if !dl_resp.status().is_success() {
-        return Err(AppError::Internal(anyhow::anyhow!(
-            "DGGS download HTTP {}", dl_resp.status()
-        )));
-    }
-
     // ── 3. Unpack outer zip, then inner per-tile zips ────────────────────────
-    // Stream download to disk instead of buffering in memory — tiles can be 50-200 MB
-    let tmp = TempDir::new()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+    // Retry up to 3x — DGGS server occasionally returns a corrupt/non-zip response.
+    let mut last_dl_err: Option<String> = None;
+    let mut retry_tmp: Option<(TempDir, Vec<u8>)> = None;
 
-    let zip_path = tmp.path().join("download.zip");
-    {
-        use tokio::io::AsyncWriteExt;
-        let mut file = tokio::fs::File::create(&zip_path).await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Create zip file: {e}")))?;
-        let mut stream = dl_resp.bytes_stream();
-        let mut downloaded: u64 = 0;
-        loop {
-            match stream.next().await {
-                Some(Ok(chunk)) => {
-                    downloaded += chunk.len() as u64;
-                    file.write_all(&chunk).await
-                        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write zip chunk: {e}")))?;
+    for attempt in 1u8..=3 {
+        tracing::info!("DGGS: attempt {} fetching download", attempt);
+        let dl_resp = dl_client
+            .post(format!("{dggs_base}/download"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Origin", dggs_base)
+            .header("Referer", format!("{dggs_base}/"))
+            .header("User-Agent", "Mozilla/5.0 (compatible; Meridian/1.0)")
+            .body(download_body.clone())
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DGGS download failed: {e}")))?;
+
+        if !dl_resp.status().is_success() {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "DGGS download HTTP {}", dl_resp.status()
+            )));
+        }
+        tracing::info!("DGGS: download Content-Type: {:?}", dl_resp.headers().get("content-type"));
+
+        let tmp = TempDir::new()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("TempDir: {e}")))?;
+        let zip_path = tmp.path().join("download.zip");
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut file = tokio::fs::File::create(&zip_path).await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Create zip file: {e}")))?;
+            let mut stream = dl_resp.bytes_stream();
+            let mut downloaded: u64 = 0;
+            loop {
+                match stream.next().await {
+                    Some(Ok(chunk)) => {
+                        downloaded += chunk.len() as u64;
+                        file.write_all(&chunk).await
+                            .map_err(|e| AppError::Internal(anyhow::anyhow!("Write zip chunk: {e}")))?;
+                    }
+                    Some(Err(e)) => {
+                        return Err(AppError::Internal(anyhow::anyhow!("DGGS download stream: {e}")));
+                    }
+                    None => break,
                 }
-                Some(Err(e)) => {
-                    return Err(AppError::Internal(anyhow::anyhow!("DGGS download stream: {e}")));
-                }
-                None => break,
+            }
+            file.flush().await.map_err(|e| AppError::Internal(anyhow::anyhow!("Flush zip: {e}")))?;
+            tracing::info!("DGGS: attempt {} complete ({} MB)", attempt, downloaded / 1_048_576);
+        }
+
+        let zip_bytes = std::fs::read(&zip_path)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Read zip file: {e}")))?;
+
+        if zip_bytes.len() < 4 || &zip_bytes[..4] != b"PK" {
+            let preview = String::from_utf8_lossy(&zip_bytes[..zip_bytes.len().min(200)]);
+            tracing::warn!("DGGS: attempt {} non-zip ({} bytes): {}", attempt, zip_bytes.len(), preview);
+            last_dl_err = Some(format!("Non-zip response on attempt {attempt}"));
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            continue;
+        }
+
+        match zip::ZipArchive::new(std::io::Cursor::new(&zip_bytes[..])) {
+            Ok(_) => {
+                retry_tmp = Some((tmp, zip_bytes));
+                break;
+            }
+            Err(e) => {
+                tracing::warn!("DGGS: attempt {} zip open failed: {}", attempt, e);
+                last_dl_err = Some(format!("{e}"));
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
         }
-        tracing::info!("DGGS: download complete ({} MB)", downloaded / 1_048_576);
     }
-    let zip_bytes = std::fs::read(&zip_path)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Read zip file: {e}")))?;
+
+    let (tmp, zip_bytes) = retry_tmp.ok_or_else(|| AppError::Internal(anyhow::anyhow!(
+        "DGGS download failed after 3 attempts: {}",
+        last_dl_err.unwrap_or_else(|| "unknown".into())
+    )))?;
 
     let mut tif_paths: Vec<std::path::PathBuf> = Vec::new();
 
