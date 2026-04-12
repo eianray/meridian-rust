@@ -149,7 +149,7 @@ code {
 
 <h1>Meridian — White Paper</h1>
 <span class="subtitle">Machine-Native GIS Processing API</span>
-<span class="version">v0.5.0 — March 2026</span>
+<span class="version">v0.5.1 — April 2026</span>
 <hr class="title-rule">
 
 <h2>1. Executive Summary</h2>
@@ -214,6 +214,10 @@ code {
   <tr><td><code>POST /v1/spatial-join</code></td><td>Join attributes from layer_b onto layer_a by spatial predicate</td></tr>
   <tr><td><code>POST /v1/vectorize</code></td><td>Generate <code>.mbtiles</code> vector tile package via tippecanoe</td></tr>
   <tr><td><code>POST /v1/batch</code></td><td>Run up to 50 operations in one request with a single x402 payment</td></tr>
+  <tr><td><code>POST /v1/export/dxf</code></td><td>Export GeoJSON as AutoCAD DXF, optionally reprojecting from source CRS</td></tr>
+  <tr><td><code>POST /v1/export/kml</code></td><td>Export GeoJSON as KML (Google Earth), optionally reprojecting from source CRS</td></tr>
+  <tr><td><code>POST /v1/export/shapefile</code></td><td>Export GeoJSON as a zipped Shapefile, optionally reprojecting from source CRS</td></tr>
+  <tr><td><code>POST /v1/package/shp</code></td><td>Package multiple vector layers into a zipped Shapefile bundle</td></tr>
 </table>
 
 <h3>DEM / Raster</h3>
@@ -231,6 +235,10 @@ code {
   <tr><td><code>POST /v1/raster-warp</code></td><td>Reproject/warp raster to any CRS via <code>gdalwarp</code></td></tr>
   <tr><td><code>POST /v1/reclassify</code></td><td>Reclassify raster pixel values by range mapping</td></tr>
   <tr><td><code>POST /v1/package/gdb</code></td><td>Package one or more vector layers into a <code>.gdb</code></td></tr>
+  <tr><td><code>POST /v1/raster-to-vector</code></td><td>Polygonize a raster band to GeoJSON via gdal_polygonize</td></tr>
+  <tr><td><code>POST /v1/raster-georeference</code></td><td>Georeference a raster image using ground control points (GCPs); returns Cloud Optimized GeoTIFF</td></tr>
+  <tr><td><code>POST /v1/pdf/rasterize</code></td><td>Rasterize a PDF to PNG images (one per page) via poppler-utils pdftoppm</td></tr>
+  <tr><td><code>POST /v1/export/jgw</code></td><td>Generate JPEG + ESRI world file (.jgw) from a georeferenced raster using GCPs</td></tr>
 </table>
 
 <h3>Reference (free)</h3>
@@ -238,7 +246,15 @@ code {
   <tr><th>Endpoint</th><th>Description</th></tr>
   <tr><td><code>GET /v1/health</code></td><td>Service health and version</td></tr>
   <tr><td><code>GET /v1/epsg/search</code></td><td>Search bundled EPSG registry by name or code</td></tr>
-  <tr><td><code>POST /v1/plss/lookup</code></td><td>PLSS section polygon lookup by legal description (AK)</td></tr>
+</table>
+<hr class="section-rule">
+
+<h3>Elevation — Alaska (async)</h3>
+<table>
+  <tr><th>Endpoint</th><th>Description</th></tr>
+  <tr><td><code>POST /v1/elevation/fetch-dggs</code></td><td>Fetch Alaska DGGS raw IfSAR 5m DTM for an AOI; returns async job ID</td></tr>
+  <tr><td><code>GET /v1/jobs/{id}/status</code></td><td>Poll async job status</td></tr>
+  <tr><td><code>GET /v1/jobs/{id}/result</code></td><td>Fetch async job result (GeoTIFF base64, EPSG:3338)</td></tr>
 </table>
 <hr class="section-rule">
 
@@ -248,7 +264,7 @@ code {
   <tr><td>Language</td><td>Rust</td></tr>
   <tr><td>HTTP framework</td><td>Axum 0.7</td></tr>
   <tr><td>Database</td><td>SQLx + PostgreSQL</td></tr>
-  <tr><td>Rate limiting</td><td>Tower middleware (60 req/min)</td></tr>
+  <tr><td>Rate limiting</td><td>Removed in v0.5.1 — X-Mcp-Key is auth-bypass only</td></tr>
   <tr><td>Payment protocol</td><td>x402 + Base USDC + EIP-3009</td></tr>
   <tr><td>Payment settlement</td><td>Coinbase CDP managed facilitator</td></tr>
   <tr><td>GIS / geometry</td><td>gdal crate 0.19 (GDAL/OGR FFI)</td></tr>
@@ -278,14 +294,18 @@ code {
 <hr class="section-rule">
 
 <h2>9. Current Status</h2>
-<p>Meridian v0.5.0 is live at <code>meridianapi.nodeapi.ai</code>.</p>
+<p>Meridian v0.5.1 is live at <code>meridianapi.nodeapi.ai</code>.</p>
 <ul>
   <li>Rust/Axum rewrite — full GIS parity with legacy Python service</li>
-  <li>x402 / Base USDC payment flow live and production-validated</li>
+  <li>x402 / Base USDC payment flow live and production-validated (<code>X402_DISABLED=true</code> in current env — flip to enable)</li>
   <li>Coinbase CDP managed facilitator (v0.5.0, 2026-03-17)</li>
-  <li>DEM / raster endpoints live (hillshade, slope, aspect, roughness, color-relief, contours, raster-calc, raster-warp, mosaic, convert/raster, reclassify)</li>
-  <li>Reference endpoints: EPSG registry search, PLSS section lookup (AK)</li>
-  <li>GDB packaging via /v1/package/gdb</li>
+  <li>DEM / raster endpoints live (hillshade, slope, aspect, roughness, color-relief, contours, raster-calc, raster-warp, mosaic, convert/raster, reclassify, raster-to-vector, raster-georeference)</li>
+  <li>PDF rasterization: <code>/v1/pdf/rasterize</code> via poppler-utils</li>
+  <li>Export endpoints: DXF, KML, Shapefile, JGW world file</li>
+  <li>Alaska DGGS elevation: async <code>/v1/elevation/fetch-dggs</code> (IfSAR 5m, EPSG:3338 output)</li>
+  <li>GDB packaging via <code>/v1/package/gdb</code> and <code>/v1/package/shp</code></li>
+  <li>PLSS lookup removed (v0.5.1) — clients query BLM ArcGIS FeatureServer directly</li>
+  <li>Rate limiter removed (v0.5.1) — X-Mcp-Key serves as auth bypass</li>
   <li>22/22 production acceptance pass + 100-transaction stress test</li>
   <li>Agent Skill published on ClawHub</li>
   <li>OpenAPI docs live at meridianapi.nodeapi.ai/docs</li>
