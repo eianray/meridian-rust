@@ -14,6 +14,7 @@ pub mod pdf;
 pub mod raster;
 pub mod reclassify;
 pub mod schema;
+pub mod schema_infer;
 pub mod topology;
 pub mod transform;
 pub mod vectorize;

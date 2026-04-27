@@ -31,6 +31,9 @@ pub enum AppError {
 
     #[error("Operation timed out")]
     Timeout,
+
+    #[error("Bad gateway: {0}")]
+    BadGateway(String),
 }
 
 #[derive(Serialize)]
@@ -73,6 +76,10 @@ impl IntoResponse for AppError {
             AppError::Timeout => (
                 StatusCode::REQUEST_TIMEOUT,
                 Json(ErrorBody { error: "Operation timed out (30s limit).".into(), detail: None }),
+            ).into_response(),
+            AppError::BadGateway(msg) => (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorBody { error: msg, detail: None }),
             ).into_response(),
         }
     }

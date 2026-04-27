@@ -15,6 +15,7 @@ use crate::routes::{
     raster::{aspect, color_relief, contours, fetch_elevation_dggs, hillshade, job_result, job_status, mosaic, raster_calc, raster_convert, raster_to_vector, raster_warp, roughness, slope},
     reclassify::reclassify,
     schema::{repair, schema, validate},
+    schema_infer::schema_infer_handler as schema_infer_route,
     topology::{difference, intersect, union},
     transform::{
         add_field, calculate_geometry, erase, feature_to_line, feature_to_point, feature_to_polygon,
@@ -33,6 +34,7 @@ pub fn router() -> Router {
         .route("/v1/batch", post(batch))
         // Schema / validation
         .route("/v1/schema", post(schema))
+        .route("/v1/schema/infer", post(schema_infer_route))
         .route("/v1/validate", post(validate))
         .route("/v1/repair", post(repair))
         // Format conversion
