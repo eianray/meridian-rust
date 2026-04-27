@@ -12,7 +12,8 @@ name = "meridian"
 path = "src/main.rs"
 
 [dependencies]
-# GIS
+shapefile = "0.8"    # Pure Rust SHP reader
+dbase = "0.7"        # Pure Rust DBF reader
 gdal = { version = "0.19", features = ["bindgen"] }
 gdal-sys = "0.12"
 geo = "0.32"

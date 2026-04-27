@@ -1,4 +1,6 @@
-//! POST /v1/schema/infer — Inspect SHP/ZIP or GDB/ZIP and return layer schema.
+//! POST /v1/schema/infer — Inspect a SHP file and return layer schema.
+//!
+//! Pure Rust using `shapefile` + `dbase` crates. No Python/Fiona required.
 //!
 //! **Multipart mode (file upload):**
 //!   `POST /v1/schema/infer` with `multipart/form-data` and field `file`
@@ -6,6 +8,11 @@
 //! **URL mode (fetch from URL):**
 //!   `POST /v1/schema/infer?url=https://example.com/data.zip`
 //!   (URL param takes precedence — file field ignored if URL is provided)
+//!
+//! **Supported inputs:**
+//!   - `.shp` file (multipart upload)
+//!   - `.zip` containing one or more `.shp` files (first .shp in archive is used)
+//!   - GDB files: route through `/v1/convert/gdb-to-shp` first, then here
 
 use axum::{
     extract::{Extension, Query},
@@ -24,101 +31,6 @@ use crate::{
 };
 
 const MAX_FILE_BYTES: usize = 50 * 1024 * 1024;
-
-const PYTHON_SCHEMA_SCRIPT: &str = r#"
-import sys, json, os, tempfile, zipfile, shutil
-
-def infer_schema(file_path):
-    import fiona
-    try:
-        ds = fiona.open(file_path)
-    except Exception as e:
-        return {"error": "cannot_open", "detail": str(e)}
-    try:
-        layer_name = ds.name
-        schema_props = ds.schema['properties']
-        count = len(ds)
-        geom_type = ds.schema.get('geometry', 'Unknown')
-        fields = []
-        for fname, ftype in schema_props.items():
-            parsed = parse_fiona_type(ftype)
-            parsed['name'] = fname
-            fields.append(parsed)
-        return {"layer_name": layer_name, "fields": fields, "feature_count": count, "geometry_type": geom_type}
-    finally:
-        ds.close()
-
-def parse_fiona_type(ftype):
-    nullable = True
-    low = ftype.lower()
-    if low == 'str' or low.startswith('str:'):
-        length = 254
-        if ':' in low:
-            try: length = int(low.split(':')[1].split(',')[0])
-            except: pass
-        return {"type": "string", "length": length, "nullable": nullable}
-    if low == 'float' or low.startswith('float:'):
-        precision, scale = 10, 6
-        if ':' in low:
-            parts = low.split(':')[1].split('.')
-            try: precision = int(parts[0])
-            except: pass
-            try: scale = int(parts[1]) if len(parts) > 1 else 6
-            except: pass
-        return {"type": "float64", "precision": precision, "scale": scale, "nullable": nullable}
-    if low == 'int' or low.startswith('int:'):
-        return {"type": "int32", "nullable": nullable}
-    if low == 'bool':
-        return {"type": "boolean", "nullable": nullable}
-    if low == 'date':
-        return {"type": "date", "nullable": nullable}
-    if low == 'datetime':
-        return {"type": "datetime", "nullable": nullable}
-    if low == 'time':
-        return {"type": "string", "length": 32, "nullable": nullable}
-    return {"type": "string", "length": 254, "nullable": nullable}
-
-def find_layer_path(tmp_dir):
-    shp_found, gdb_found = None, None
-    for root, dirs, files in os.walk(tmp_dir):
-        for f in files:
-            if f.lower().endswith('.shp'):
-                shp_found = os.path.join(root, f)
-        for d in dirs:
-            if d.lower().endswith('.gdb'):
-                gdb_found = os.path.join(root, d)
-    return shp_found, gdb_found
-
-if __name__ == '__main__':
-    mode, path = sys.argv[1], sys.argv[2]
-    tmp_dir = tempfile.mkdtemp()
-    try:
-        actual_path = None
-        if mode in ('zip', 'gdb'):
-            try:
-                with zipfile.ZipFile(path, 'r') as zf:
-                    zf.extractall(tmp_dir)
-            except Exception as e:
-                print(json.dumps({"error": "invalid_zip", "detail": str(e)}))
-                sys.exit(0)
-            if mode == 'gdb':
-                for entry in os.listdir(tmp_dir):
-                    if entry.lower().endswith('.gdb'):
-                        actual_path = os.path.join(tmp_dir, entry)
-                        break
-            else:
-                shp, gdb = find_layer_path(tmp_dir)
-                actual_path = shp or gdb
-        else:
-            actual_path = path
-        if not actual_path:
-            print(json.dumps({"error": "no_layers_found"}))
-        else:
-            result = infer_schema(actual_path)
-            print(json.dumps(result))
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-"#;
 
 #[derive(Serialize)]
 pub struct SchemaInferResponse {
@@ -161,7 +73,6 @@ pub async fn schema_infer_handler(
 ) -> Result<Json<SchemaInferResponse>, AppError> {
     let t0 = Instant::now();
 
-    // URL query param takes precedence
     if let Some(url) = params.url {
         let out = handle_url_mode(&request_id, &url).await?;
         tracing::info!(
@@ -175,7 +86,6 @@ pub async fn schema_infer_handler(
         return Ok(Json(out));
     }
 
-    // Multipart file upload
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut detected_ext = String::new();
 
@@ -200,8 +110,11 @@ pub async fn schema_infer_handler(
     }
 
     let file_bytes = file_bytes.ok_or_else(|| AppError::BadRequest("Missing 'file' field".into()))?;
-    let ext = if detected_ext.is_empty() { "zip" } else { &detected_ext };
-    let out = run_schema_inference(&request_id, file_bytes, ext).await?;
+    let out = run_schema_inference(file_bytes, &detected_ext)?;
+    let out = SchemaInferResponse {
+        request_id: request_id.clone(),
+        ..out
+    };
 
     tracing::info!(
         request_id = %request_id,
@@ -236,91 +149,155 @@ async fn handle_url_mode(request_id: &str, url: &str) -> Result<SchemaInferRespo
     }
 
     let ext = url.rsplit('.').next().unwrap_or("").to_lowercase();
-    run_schema_inference(request_id, bytes.to_vec(), &ext).await
+    let mut out = run_schema_inference(bytes.to_vec(), &ext)?;
+    out.request_id = request_id.to_string();
+    Ok(out)
 }
 
-async fn run_schema_inference(
-    request_id: &str,
+fn run_schema_inference(
     file_bytes: Vec<u8>,
     detected_ext: &str,
 ) -> Result<SchemaInferResponse, AppError> {
     let id = Uuid::new_v4().to_string();
-    let mode = if detected_ext == "shp" { "file" } else { "zip" };
-    let ext_suffix = if detected_ext == "shp" { "shp" } else { "zip" };
-    let tmp_path = format!("/tmp/schema_infer_{id}.{ext_suffix}");
-
-    let tmp_path_clone = tmp_path.clone();
-    fs::write(&tmp_path, &file_bytes)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write temp: {e}")))?;
-
-    let join_result = tokio::task::spawn_blocking(move || {
-        run_python_script(&tmp_path_clone, mode)
-    })
-    .await;
-
-    let _ = tokio::fs::remove_file(&tmp_path).await;
-
-    let python_out = match join_result {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Err(AppError::BadRequest(format!("python3 script failed: {}", e))),
-        Err(e) => return Err(AppError::Internal(anyhow::anyhow!("Join: {e}"))),
+    let tmp_dir = format!("/tmp/schema_infer_{id}");
+    let tmp_path = if detected_ext == "shp" {
+        format!("{tmp_dir}.shp")
+    } else {
+        format!("{tmp_dir}.zip")
     };
 
-    let parsed: serde_json::Value = serde_json::from_str(&python_out)
-        .map_err(|e| {
-            AppError::Internal(anyhow::anyhow!(
-                "Python output parse error: {}; Output: {:?}",
-                e, python_out
-            ))
-        })?;
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create tmp dir: {e}")))?;
+    std::fs::write(&tmp_path, &file_bytes)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write temp: {e}")))?;
 
-    if let Some(err) = parsed.get("error").and_then(|e| e.as_str()) {
-        let detail = parsed.get("detail").and_then(|e| e.as_str()).unwrap_or("");
-        match err {
-            "no_layers_found" => return Err(AppError::BadRequest("no_layers_found".into())),
-            "invalid_zip" => return Err(AppError::BadRequest(format!("invalid_zip: {}", detail))),
-            "cannot_open" => return Err(AppError::BadRequest(format!("cannot_open: {}", detail))),
-            _ => return Err(AppError::BadRequest(format!("{}: {}", err, detail))),
-        }
-    }
+    let result = infer_schema_from_path(&tmp_path, &tmp_dir, detected_ext);
 
-    let layer_name = parsed.get("layer_name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let feature_count = parsed.get("feature_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let geometry_type = parsed.get("geometry_type").and_then(|v| v.as_str()).map(String::from);
+    let _ = std::fs::remove_file(&tmp_path);
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 
-    let fields: Vec<SchemaField> = parsed.get("fields")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter().filter_map(|f| {
-                let name = f.get("name")?.as_str()?.to_string();
-                let field_type = f.get("type")?.as_str()?.to_string();
-                let length = f.get("length").and_then(|v| v.as_u64()).map(|n| n as usize);
-                let precision = f.get("precision").and_then(|v| v.as_u64()).map(|n| n as usize);
-                let scale = f.get("scale").and_then(|v| v.as_u64()).map(|n| n as usize);
-                let nullable = f.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
-                Some(SchemaField { name, field_type, length, precision, scale, nullable })
-            }).collect()
-        })
-        .unwrap_or_default();
-
-    Ok(SchemaInferResponse { request_id: request_id.to_string(), layer_name, fields, feature_count, geometry_type })
+    result
 }
 
-fn run_python_script(file_path: &str, mode: &str) -> Result<String, AppError> {
-    let id = Uuid::new_v4().to_string().replace('-', "")[..8].to_string();
-    let script_path = format!("/tmp/schema_script_{id}.py");
-    std::fs::write(&script_path, PYTHON_SCHEMA_SCRIPT)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write script: {e}")))?;
-    let output = std::process::Command::new("python3")
-        .args(["-u", &script_path, mode, file_path])
-        .output()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("python3 spawn: {e}")))?;
-    let _ = std::fs::remove_file(&script_path);
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::BadRequest(format!("python3 script failed: {}", stderr.trim())));
+fn infer_schema_from_path(
+    tmp_path: &str,
+    tmp_dir: &str,
+    detected_ext: &str,
+) -> Result<SchemaInferResponse, AppError> {
+    let shp_path = if detected_ext == "shp" {
+        tmp_path.to_string()
+    } else {
+        let file = std::fs::File::open(tmp_path)
+            .map_err(|e| AppError::BadRequest(format!("invalid_zip: {}", e)))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|e| AppError::BadRequest(format!("invalid_zip: {}", e)))?;
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)
+                .map_err(|e| AppError::BadRequest(format!("invalid_zip: {}", e)))?;
+            let outpath = std::path::Path::new(tmp_dir).join(file.name());
+            if file.is_dir() { continue; }
+            if let Some(p) = outpath.parent() {
+                let _ = std::fs::create_dir_all(p);
+            }
+            let mut outfile = std::fs::File::create(&outpath)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Extract write: {e}")))?;
+            std::io::copy(&mut file, &mut outfile)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Extract copy: {e}")))?;
+        }
+
+        find_first_shp(tmp_dir)
+            .ok_or_else(|| AppError::BadRequest("no_layers_found".into()))?
+    };
+
+    // Use shapefile::Reader to open and read schema
+    let mut reader = shapefile::Reader::from_path(&shp_path)
+        .map_err(|e| AppError::BadRequest(format!("cannot_open: {}", e)))?;
+
+    let geometry_type = shape_type_name(reader.header().shape_type);
+
+    let layer_name = std::path::Path::new(&shp_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Read fields from the DBF file directly using dbase crate
+    let dbf_path = std::path::Path::new(&shp_path).with_extension("dbf");
+    let mut dbf_reader = dbase::Reader::from_path(&dbf_path)
+        .map_err(|e| AppError::BadRequest(format!("cannot_open: {} (dbf)", e)))?;
+    let mut fields = Vec::new();
+    for field_info in dbf_reader.fields() {
+        let (ft, _, precision, scale) = dbase_field_type(field_info.field_type());
+        fields.push(SchemaField {
+            name: field_info.name().to_string(),
+            field_type: ft,
+            length: Some(field_info.length() as usize),
+            precision,
+            scale,
+            nullable: true,
+        });
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(stdout.to_string())
+
+    let feature_count = reader.shape_count()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("shape_count: {}", e)))?;
+
+    Ok(SchemaInferResponse {
+        request_id: String::new(),
+        layer_name,
+        fields,
+        feature_count,
+        geometry_type: Some(geometry_type),
+    })
+}
+
+fn find_first_shp(dir: &str) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_first_shp(path.to_str()?) {
+                return Some(found);
+            }
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if ext.eq_ignore_ascii_case("shp") {
+                return path.to_str().map(String::from);
+            }
+        }
+    }
+    None
+}
+
+fn shape_type_name(st: shapefile::ShapeType) -> String {
+    match st {
+        shapefile::ShapeType::NullShape => "Null".into(),
+        shapefile::ShapeType::Point => "Point".into(),
+        shapefile::ShapeType::PointZ => "PointZ".into(),
+        shapefile::ShapeType::PointM => "PointM".into(),
+        shapefile::ShapeType::Polyline => "PolyLine".into(),
+        shapefile::ShapeType::PolylineZ => "PolyLineZ".into(),
+        shapefile::ShapeType::PolylineM => "PolyLineM".into(),
+        shapefile::ShapeType::Polygon => "Polygon".into(),
+        shapefile::ShapeType::PolygonZ => "PolygonZ".into(),
+        shapefile::ShapeType::PolygonM => "PolygonM".into(),
+        shapefile::ShapeType::Multipoint => "MultiPoint".into(),
+        shapefile::ShapeType::MultipointZ => "MultiPointZ".into(),
+        shapefile::ShapeType::MultipointM => "MultiPointM".into(),
+        shapefile::ShapeType::Multipatch => "MultiPatch".into(),
+    }
+}
+
+fn dbase_field_type(ft: dbase::FieldType) -> (String, Option<usize>, Option<usize>, Option<usize>) {
+    use dbase::FieldType::*;
+    match ft {
+        Character => ("string".into(), None, None, None),
+        Date => ("date".into(), None, None, None),
+        Float | Double => ("float64".into(), None, Some(20), Some(6)),
+        Numeric => ("float64".into(), None, Some(20), Some(6)),
+        Integer => ("int32".into(), None, None, None),
+        Logical => ("boolean".into(), None, None, None),
+        Memo => ("string".into(), None, None, None),
+        Currency => ("float64".into(), None, Some(20), Some(4)),
+        DateTime => ("datetime".into(), None, None, None),
+    }
 }
