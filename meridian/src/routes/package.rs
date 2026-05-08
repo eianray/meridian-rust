@@ -38,6 +38,7 @@ pub struct PackageGdbParams {
     responses(
         (status = 200, description = "GDB archive as base64 zip", body = GeoJsonOutput),
         (status = 400, description = "Bad request — missing layer, invalid GeoJSON, unmatched pairs"),
+        (status = 402, description = "Payment required", body = crate::billing::PaymentRequired),
         (status = 413, description = "Payload too large"),
         (status = 500, description = "Internal server error")
     )
@@ -192,8 +193,6 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)], source_crs: &str) -> Result<Vec<
         let exploded_path = tmp.path().join(format!("layer_{}_exploded.geojson", layer_idx));
         let explode_output = Command::new("ogr2ogr")
             .args(["-f", "GeoJSON", "-explodecollections"])
-            .arg("-s_srs").arg(source_crs)
-            .arg("-t_srs").arg(source_crs)
             .arg(&exploded_path)
             .arg(&geojson_path)
             .output()
@@ -241,7 +240,6 @@ fn do_package_gdb(layers: &[(String, Vec<u8>)], source_crs: &str) -> Result<Vec<
 
         cmd.arg("-nln").arg(&layer_name);
         cmd.arg("-nlt").arg("PROMOTE_TO_MULTI");
-        cmd.arg("-unsetFid"); // prevent duplicate FID conflicts from GeoJSON id fields
 
         if layer_idx > 0 {
             cmd.arg("-append");
