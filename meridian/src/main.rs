@@ -1,4 +1,3 @@
-use meridian::billing;
 use meridian::config::AppConfig;
 use meridian::gis;
 use meridian::metrics;
@@ -24,7 +23,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use billing::PaymentRequired;
 use routes::batch::{BatchOperation, BatchResponse, BatchResult};
 use middleware::rate_limit::{rate_limit_middleware, IpRateLimiters};
 use middleware::request_id::request_id_middleware;
@@ -46,9 +44,9 @@ use gis::{
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "Meridian GIS API",
+        title = "Meridian Node",
         version = "0.4.0",
-        description = "Rust GIS processing API with facilitator-backed x402 payments on Base USDC.",
+        description = "Meridian Node — GIS and raster processing API. Free to use. No API key required.",
         contact(name = "Eian Ray", url = "https://eianray.com"),
         license(name = "Proprietary")
     ),
@@ -84,7 +82,6 @@ use gis::{
             HealthResponse,
             routes::epsg::EpsgEntry,
             GeoJsonOutput,
-            PaymentRequired,
             BatchResponse,
             BatchResult,
             BatchOperation,
@@ -111,7 +108,7 @@ use gis::{
     ),
     tags(
         (name = "Info", description = "Free informational endpoints"),
-        (name = "GIS", description = "Paid spatial processing endpoints"),
+        (name = "GIS", description = "Spatial processing endpoints"),
     )
 )]
 struct ApiDoc;
@@ -227,7 +224,7 @@ async fn main() -> anyhow::Result<()> {
         info!("Database migrations applied");
         Some(pool)
     } else {
-        info!("No DATABASE_URL — payment logging disabled");
+        info!("No DATABASE_URL — operation logging disabled");
         None
     };
 
@@ -257,10 +254,8 @@ async fn main() -> anyhow::Result<()> {
     let prom_handle = metrics::init_prometheus();
 
     if cfg.dev_mode {
-        tracing::warn!("DEV_MODE is active - payment verification is DISABLED. Do not run in production without WALLET_ADDRESS and DEV_MODE=false.");
     }
     if cfg.dev_mode {
-        tracing::warn!("[WARN] DEV_MODE active - all payment verification DISABLED. Set DEV_MODE=false and WALLET_ADDRESS for production.");
     }
     info!(
         version = env!("CARGO_PKG_VERSION"),
